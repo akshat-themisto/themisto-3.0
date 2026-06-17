@@ -1,0 +1,39 @@
+server:
+  listen_addr: ":8443"
+  health_addr: ":8080"
+  read_timeout: 30s
+  write_timeout: 120s
+  idle_timeout: 300s
+
+tls:
+  cert_path: /etc/themisto/server/server.crt
+  key_path: /etc/themisto/server/server.key
+  ca_chain_path: /etc/themisto/ca/ca-chain.pem
+
+revocation:
+  backend_url: "http://backend:8443"
+  cache_ttl: 60s
+  cache_max_entries: 10000
+  fail_mode: closed
+
+control_plane:
+  url: ""
+  cache_ttl: 30s
+  fail_mode: closed
+
+upstream:
+  request_timeout: 120s
+
+prompt_semantics:
+  enabled: false
+  qwen_url: ""
+  timeout: 900ms
+
+telemetry:
+  buffer_size: 10000
+  flush_interval: 1s
+  flush_batch_size: 500
+
+logging:
+  level: info
+  format: json

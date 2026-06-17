@@ -1,0 +1,51 @@
+{
+  "model_mode": "base_deberta_policy_scorer",
+  "candidate_labels": [
+    "corporate data risk",
+    "approved business AI use",
+    "ambiguous corporate AI request"
+  ],
+  "block_label": "corporate data risk",
+  "allow_label": "approved business AI use",
+  "ambiguous_label": "ambiguous corporate AI request",
+  "hypothesis_template": "This workplace AI prompt is about {}.",
+  "block_terms": [
+    "api key",
+    "aws secret",
+    "secret key",
+    "private key",
+    "password",
+    "token",
+    "credential",
+    "source code",
+    "customer data",
+    "employee data",
+    "regulated data",
+    "pii",
+    "ssn",
+    "social security",
+    "credit card",
+    "dump this database",
+    "upload this repository",
+    "paste our code"
+  ],
+  "alert_terms": [
+    "confidential",
+    "internal only",
+    "proprietary",
+    "production log",
+    "database export",
+    "unsanctioned",
+    "personal ai account",
+    "bypass policy"
+  ],
+  "allow_terms": [
+    "summarize",
+    "rewrite",
+    "brainstorm",
+    "draft",
+    "explain",
+    "debug without secrets",
+    "public documentation"
+  ]
+}

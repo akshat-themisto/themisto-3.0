@@ -1,0 +1,124 @@
+.DS_Store
+*.exe
+*.exe~
+*.test
+*.out
+
+# Secrets & certificates
+.env
+certs/
+backups/
+*.key
+*.pem
+*.crt
+*-device/
+agent.json
+agent.yml
+themisto-agent
+
+# Go
+vendor/
+.gocache/
+.gocache2/
+.gocache-*/
+.gomodcache-*/
+
+# Docker
+pg_data/
+
+# Python
+__pycache__/
+*.pyc
+
+# JavaScript package manager caches
+.npm/
+.npm-cache/
+.npm-cache-*/
+**/.npm-cache/
+**/.npm-cache-*/
+.yarn/cache/
+.pnpm-store/
+
+# Tooling & local artifacts
+.claude/
+go*.linux-amd64.tar.gz
+bin/
+ThemistoAgent-windows-0.1.0/
+dist/browser/
+dist/customer-delivery/
+
+.gocache-local/
+.gomodcache_local/
+gateway/.gocache-local/
+
+# Desktop app
+desktop/.npm-cache-desktop/
+desktop/.wails/
+desktop/frontend/.vite/
+desktop/frontend/dist/
+desktop/frontend/node_modules/
+desktop/build/bin/
+desktop/build/darwin/
+
+# Installer embedded assets (built artifacts)
+cmd/installer/assets/themisto-agent.exe
+cmd/installer/assets/themisto-desktop.exe
+cmd/installer/assets/extensions/chromium/
+cmd/installer/assets/extensions/firefox/
+!cmd/installer/assets/extensions/.gitkeep
+
+# Build output
+dist/
+
+# Repo-local Go module cache
+.gomodcache/
+
+# Local temp/debug files
+.tmp-*
+
+# Local backup files from manual testing
+agent.json.bak-*
+local-device.bak-*/
+gateway/.gomodcache/
+backend/.gomodcache/
+
+# Duplicate artifact churn (macOS/Finder/editor copies)
+* 2.go
+* 2.js
+* 2.jsx
+* 2.ts
+* 2.tsx
+* 2.sh
+* 2.ps1
+* 2.yaml
+* 2.md
+* 2.json
+* 2.png
+* 2.PNG
+* 2.css
+* 2.html
+* 2.zip
+* 2.pkg
+
+# Additional duplicated logo exports
+dashboard/logo/* 3.png
+dashboard/logo/* 4.png
+dashboard/logo/* 3.PNG
+dashboard/logo/* 4.PNG
+dashboard/public/* 3.png
+dashboard/public/* 4.png
+dashboard/public/* 3.PNG
+dashboard/public/* 4.PNG
+
+
+.gomodcache-fresh
+
+backend/.codex-tmp
+
+.codex-tmp/
+
+.gocache-backend/
+
+.gocache-gateway/
+
+.gocache-desktop-claude/

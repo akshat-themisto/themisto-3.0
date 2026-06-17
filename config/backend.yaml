@@ -1,0 +1,26 @@
+server:
+  listen_addr: ":8443"
+  read_timeout: 30s
+  write_timeout: 30s
+
+signing:
+  ca_cert_path: /etc/themisto/ca/issuing-ca.crt
+  ca_key_path: /etc/themisto/ca/issuing-ca.key
+  ca_chain_path: /etc/themisto/ca/ca-chain.pem
+  cert_validity_days: 90
+
+token:
+  expiry_hours: 24
+
+logging:
+  level: info
+  format: json
+
+control_plane:
+  url: ""
+  cache_ttl: 30s
+  fail_mode: closed
+
+public:
+  backend_url: "https://localhost:8443"
+  gateway_url: "https://localhost:443"

@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="utf-8"/>
+    <style>
+        body { font-family: -apple-system, Helvetica Neue, sans-serif; font-size: 13px; color: #333; }
+        h2   { font-size: 15px; font-weight: 600; }
+        p, li { line-height: 1.5; }
+        code { background: #f0f0f0; padding: 1px 4px; border-radius: 3px; font-size: 12px; }
+    </style>
+</head>
+<body>
+    <h2>After Installation</h2>
+    <p>Open <strong>Themisto.app</strong> from your Applications folder and complete device enrollment via your organization's dashboard.</p>
+    <p>Alternatively, enroll from the terminal:</p>
+    <p><code>sudo themisto-activate --token &lt;enrollment-token&gt;</code></p>
+
+    <h2>Installed Paths</h2>
+    <ul>
+        <li><code>/Applications/Themisto.app</code></li>
+        <li><code>/usr/local/bin/themisto-agent</code></li>
+        <li><code>/usr/local/bin/themisto-service</code></li>
+        <li><code>/usr/local/bin/themisto-activate</code></li>
+        <li><code>/usr/local/bin/themisto-uninstall</code></li>
+        <li><code>/etc/themisto/agent.json</code></li>
+        <li><code>/Library/LaunchDaemons/com.themisto.agent.plist</code></li>
+    </ul>
+
+    <h2>Managing the Agent</h2>
+    <ul>
+        <li>Start: <code>sudo themisto-service start</code></li>
+        <li>Stop: <code>sudo themisto-service stop</code></li>
+        <li>Status: <code>sudo themisto-service status</code></li>
+        <li>Uninstall: <code>sudo themisto-uninstall</code></li>
+    </ul>
+</body>
+</html>

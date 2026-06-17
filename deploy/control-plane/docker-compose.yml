@@ -1,0 +1,36 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - control_plane_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  internal-control:
+    image: ${CONTROL_PLANE_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    ports:
+      - "${CONTROL_PLANE_PORT:-4300}:4300"
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      DATABASE_SCHEMA: ${DATABASE_SCHEMA:-internal_control}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME:-themisto_internal_session}
+      SESSION_TTL_HOURS: ${SESSION_TTL_HOURS:-168}
+      INTERNAL_API_TOKEN: ${INTERNAL_API_TOKEN}
+      INTERNAL_OWNER_EMAIL: ${INTERNAL_OWNER_EMAIL}
+      INTERNAL_OWNER_PASSWORD: ${INTERNAL_OWNER_PASSWORD}
+      NEXT_PUBLIC_APP_NAME: ${NEXT_PUBLIC_APP_NAME:-Themisto Control}
+
+volumes:
+  control_plane_pg:

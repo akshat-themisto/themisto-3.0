@@ -1,0 +1,58 @@
+#!/bin/sh
+# themisto-uninstall — removes all Themisto components from this Mac.
+set -eu
+
+PLIST="/Library/LaunchDaemons/com.themisto.agent.plist"
+LABEL="com.themisto.agent"
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "error: run as root (use sudo)" >&2
+  exit 1
+fi
+
+echo "Uninstalling Themisto..."
+
+# ── Stop and remove the launchd daemon ──────────────────────────────────────
+
+if /bin/launchctl print "system/$LABEL" >/dev/null 2>&1; then
+  echo "  Stopping agent service..."
+  /bin/launchctl bootout "system/$LABEL" >/dev/null 2>&1 || true
+  sleep 1
+fi
+
+# ── Clear system proxy settings ─────────────────────────────────────────────
+
+if [ -x "/usr/local/bin/themisto-agent" ]; then
+  echo "  Clearing system proxy settings..."
+  /usr/local/bin/themisto-agent -proxy-off >/dev/null 2>&1 || true
+fi
+
+# ── Remove files ────────────────────────────────────────────────────────────
+
+echo "  Removing application bundle..."
+rm -rf /Applications/Themisto.app
+
+echo "  Removing binaries..."
+rm -f /usr/local/bin/themisto-agent
+rm -f /usr/local/bin/themisto-service
+rm -f /usr/local/bin/themisto-activate
+rm -f /usr/local/bin/themisto-uninstall
+
+echo "  Removing launchd plist..."
+rm -f "$PLIST"
+
+echo "  Removing configuration..."
+rm -rf /etc/themisto
+
+echo "  Removing logs..."
+rm -rf /var/log/themisto
+
+echo "  Removing proxy state..."
+rm -rf "/Library/Application Support/Themisto"
+
+# ── Forget the package receipt ──────────────────────────────────────────────
+
+pkgutil --forget com.themisto.desktop >/dev/null 2>&1 || true
+pkgutil --forget com.themisto.agent   >/dev/null 2>&1 || true
+
+echo "Themisto has been uninstalled."

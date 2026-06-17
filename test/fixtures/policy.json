@@ -1,0 +1,82 @@
+{
+  "version": "v2",
+  "rules": [
+    {
+      "id": "rule-allow",
+      "priority": 10,
+      "decision": 0,
+      "conditions": [
+        {
+          "field": "host",
+          "operator": "suffix",
+          "value": ".example.com"
+        }
+      ]
+    },
+    {
+      "id": "rule-block",
+      "priority": 20,
+      "decision": 2,
+      "conditions": [
+        {
+          "field": "host",
+          "operator": "suffix",
+          "value": ".blocked.test"
+        }
+      ]
+    },
+    {
+      "id": "rule-bypass",
+      "priority": 30,
+      "decision": 1,
+      "conditions": [
+        {
+          "field": "host",
+          "operator": "suffix",
+          "value": ".bypass.test"
+        }
+      ]
+    },
+    {
+      "id": "rule-block-unsanctioned-ai",
+      "priority": 40,
+      "decision": 2,
+      "conditions": [
+        {
+          "field": "service_category",
+          "operator": "eq",
+          "value": "ai_llm"
+        }
+      ]
+    },
+    {
+      "id": "rule-alert-ai-credentials",
+      "priority": 50,
+      "decision": 3,
+      "conditions": [
+        {
+          "field": "body_contains_credentials",
+          "operator": "eq",
+          "value": "true"
+        }
+      ]
+    },
+    {
+      "id": "rule-block-ai-pii",
+      "priority": 60,
+      "decision": 2,
+      "conditions": [
+        {
+          "field": "ai_vendor",
+          "operator": "eq",
+          "value": "openai"
+        },
+        {
+          "field": "body_contains_pii",
+          "operator": "eq",
+          "value": "true"
+        }
+      ]
+    }
+  ]
+}

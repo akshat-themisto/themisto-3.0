@@ -1,0 +1,30 @@
+<?xml version="1.0" encoding="utf-8"?>
+<installer-gui-script minSpecVersion="2">
+    <title>Themisto</title>
+    <organization>com.themisto</organization>
+    <domains enable_anywhere="false" enable_currentUserHome="false" enable_localSystem="true"/>
+
+    <options customize="never" require-scripts="true" hostArchitectures="arm64,x86_64"/>
+
+    <welcome    file="welcome.html"/>
+    <readme     file="readme.html"/>
+
+    <choices-outline>
+        <line choice="default">
+            <line choice="com.themisto.desktop"/>
+        </line>
+    </choices-outline>
+
+    <choice id="default"/>
+
+    <choice id="com.themisto.desktop"
+            visible="false"
+            customLocation="/"
+            title="Themisto Desktop + Agent">
+        <pkg-ref id="com.themisto.desktop"/>
+    </choice>
+
+    <pkg-ref id="com.themisto.desktop"
+             version="0"
+             onConclusion="none">ThemistoDesktop-component.pkg</pkg-ref>
+</installer-gui-script>

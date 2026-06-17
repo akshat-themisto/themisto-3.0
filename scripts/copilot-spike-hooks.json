@@ -1,0 +1,20 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "type": "command",
+        "command": "powershell.exe -ExecutionPolicy Bypass -NoProfile -File scripts/copilot-hook-spike.ps1",
+        "windows": "powershell.exe -ExecutionPolicy Bypass -NoProfile -File scripts\\copilot-hook-spike.ps1",
+        "timeout": 15
+      }
+    ],
+    "PreToolUse": [
+      {
+        "type": "command",
+        "command": "powershell.exe -ExecutionPolicy Bypass -NoProfile -File scripts/copilot-hook-spike.ps1",
+        "windows": "powershell.exe -ExecutionPolicy Bypass -NoProfile -File scripts\\copilot-hook-spike.ps1",
+        "timeout": 15
+      }
+    ]
+  }
+}

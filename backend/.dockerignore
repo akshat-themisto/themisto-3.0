@@ -1,0 +1,6 @@
+backend
+bin
+.gocache*
+.gomodcache*
+*.test
+*.out

@@ -1,0 +1,38 @@
+#!/bin/sh
+set -eu
+
+PLIST="/Library/LaunchDaemons/com.themisto.agent.plist"
+LABEL="com.themisto.agent"
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "error: run as root (use sudo)" >&2
+  exit 1
+fi
+
+action="${1:-}"
+
+case "$action" in
+  install)
+    launchctl bootout system "$PLIST" >/dev/null 2>&1 || true
+    launchctl bootstrap system "$PLIST"
+    launchctl kickstart -k "system/$LABEL"
+    ;;
+  start)
+    launchctl kickstart -k "system/$LABEL"
+    ;;
+  stop)
+    launchctl bootout system "$PLIST" >/dev/null 2>&1 || true
+    ;;
+  uninstall)
+    launchctl bootout system "$PLIST" >/dev/null 2>&1 || true
+    rm -f "$PLIST"
+    ;;
+  status)
+    launchctl print "system/$LABEL"
+    ;;
+  *)
+    echo "usage: sudo themisto-service {install|start|stop|status|uninstall}" >&2
+    exit 1
+    ;;
+esac
+

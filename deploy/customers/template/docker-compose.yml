@@ -1,0 +1,74 @@
+services:
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: ${POSTGRES_USER}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: ${POSTGRES_DB}
+    volumes:
+      - customer_pg:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+
+  backend:
+    image: ${BACKEND_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+    environment:
+      CONFIG_PATH: /etc/themisto/config/backend.yaml
+      DB_DSN: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      ADMIN_API_KEY: ${ADMIN_API_KEY}
+      CONTROL_PLANE_URL: ${CONTROL_PLANE_URL}
+      CONTROL_PLANE_TOKEN: ${CONTROL_PLANE_TOKEN}
+      CONTROL_PLANE_FAIL_MODE: ${CONTROL_PLANE_FAIL_MODE:-closed}
+      PUBLIC_BACKEND_URL: ${PUBLIC_BACKEND_URL}
+      PUBLIC_GATEWAY_URL: ${PUBLIC_GATEWAY_URL}
+    volumes:
+      - ./config/backend.yaml:/etc/themisto/config/backend.yaml:ro
+      - ./certs/ca/ca-chain.pem:/etc/themisto/ca/ca-chain.pem:ro
+      - ./certs/ca/issuing-ca.crt:/etc/themisto/ca/issuing-ca.crt:ro
+      - ./certs/ca/issuing-ca.key:/etc/themisto/ca/issuing-ca.key:ro
+    ports:
+      - "8443:8443"
+
+  gateway:
+    image: ${GATEWAY_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      postgres:
+        condition: service_healthy
+      backend:
+        condition: service_started
+    environment:
+      CONFIG_PATH: /etc/themisto/config/gateway.yaml
+      DB_DSN: postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}?sslmode=disable
+      INTERNAL_TOKEN: ${ADMIN_API_KEY}
+      CONTROL_PLANE_URL: ${CONTROL_PLANE_URL}
+      CONTROL_PLANE_TOKEN: ${CONTROL_PLANE_TOKEN}
+      CONTROL_PLANE_FAIL_MODE: ${CONTROL_PLANE_FAIL_MODE:-closed}
+    volumes:
+      - ./config/gateway.yaml:/etc/themisto/config/gateway.yaml:ro
+      - ./certs/ca/ca-chain.pem:/etc/themisto/ca/ca-chain.pem:ro
+      - ./certs/server/server.crt:/etc/themisto/server/server.crt:ro
+      - ./certs/server/server.key:/etc/themisto/server/server.key:ro
+    ports:
+      - "443:8443"
+      - "127.0.0.1:8080:8080"
+
+  dashboard:
+    image: ${DASHBOARD_IMAGE}
+    restart: unless-stopped
+    depends_on:
+      backend:
+        condition: service_started
+    ports:
+      - "3000:80"
+
+volumes:
+  customer_pg:

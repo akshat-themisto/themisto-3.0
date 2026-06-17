@@ -1,0 +1,6 @@
+gateway
+bin
+.gocache*
+.gomodcache*
+*.test
+*.out
