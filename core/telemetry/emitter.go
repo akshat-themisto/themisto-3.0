@@ -72,6 +72,12 @@ func (e *Emitter) finalFlush() {
 	e.flush(ctx)
 }
 
+// FlushNow sends currently buffered telemetry without waiting for the next
+// interval. It is used for lifecycle events during a graceful shutdown.
+func (e *Emitter) FlushNow() {
+	e.finalFlush()
+}
+
 // telemetryBatch is the JSON payload sent to the gateway.
 type telemetryBatch struct {
 	Metrics []metricEntry `json:"metrics,omitempty"`

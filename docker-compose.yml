@@ -53,6 +53,7 @@ services:
       - CONFIG_PATH=/etc/themisto/config/backend.yaml
       - DB_DSN=postgres://themisto:${POSTGRES_PASSWORD:-themisto_dev_password}@postgres:5432/themisto?sslmode=disable
       - ADMIN_API_KEY=${ADMIN_API_KEY:-themisto_dev_admin_key_123}
+      - OPERATOR_ORG_ID=${OPERATOR_ORG_ID:-a0000000-0000-0000-0000-000000000001}
       - CONTROL_PLANE_URL=${CONTROL_PLANE_URL:-}
       - CONTROL_PLANE_TOKEN=${CONTROL_PLANE_TOKEN:-}
       - CONTROL_PLANE_FAIL_MODE=${CONTROL_PLANE_FAIL_MODE:-closed}
@@ -103,6 +104,27 @@ services:
     restart: unless-stopped
     ports:
       - "${DASHBOARD_HOST_PORT:-3010}:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+    deploy:
+      resources:
+        limits:
+          memory: 128M
+          cpus: "0.5"
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+  operations-dashboard:
+    build:
+      context: ./dashboard
+      dockerfile: Dockerfile.ops
+    restart: unless-stopped
+    ports:
+      - "${OPERATIONS_DASHBOARD_HOST_PORT:-3011}:80"
     depends_on:
       backend:
         condition: service_healthy

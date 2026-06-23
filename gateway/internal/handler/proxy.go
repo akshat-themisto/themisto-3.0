@@ -192,6 +192,22 @@ func (h *ProxyHandler) handleTelemetry(w http.ResponseWriter, r *http.Request, d
 
 	accepted := 0
 	for _, e := range batch.Events {
+		if isAgentStatusEvent(e.Name) {
+			timestamp := e.Timestamp
+			if timestamp.IsZero() {
+				timestamp = time.Now()
+			}
+			h.telem.EmitAgentStatus(telemetry.AgentStatusEvent{
+				Timestamp: timestamp,
+				DeviceID:  deviceID,
+				OrgID:     orgID,
+				EventType: e.Name,
+				Severity:  agentStatusSeverity(e.Name, e.Payload.Data),
+				Data:      sanitizedAgentStatusData(e.Payload.Data),
+			})
+			accepted++
+			continue
+		}
 		if e.Name != "proxy.request" && e.Name != "dlp.match" {
 			continue
 		}
@@ -246,6 +262,21 @@ func (h *ProxyHandler) handleTelemetry(w http.ResponseWriter, r *http.Request, d
 			}
 			if v, ok := asString(data["reason_detail"]); ok {
 				dlpEvt.ReasonDetail = v
+			}
+			if v, ok := asString(data["semantic_source"]); ok {
+				dlpEvt.SemanticSource = strings.TrimSpace(v)
+			}
+			if v, ok := asString(data["semantic_category"]); ok {
+				dlpEvt.SemanticCategory = strings.TrimSpace(v)
+			}
+			if v, ok := asFloat64(data["semantic_confidence"]); ok {
+				dlpEvt.SemanticConfidence = v
+			}
+			if v, ok := asBool(data["semantic_ambiguous"]); ok {
+				dlpEvt.SemanticAmbiguous = v
+			}
+			if v, ok := asString(data["semantic_reason"]); ok {
+				dlpEvt.SemanticReason = strings.TrimSpace(v)
 			}
 			if v, ok := asString(data["severity"]); ok {
 				dlpEvt.Severity = strings.ToLower(strings.TrimSpace(v))
@@ -424,6 +455,52 @@ func (h *ProxyHandler) handleTelemetry(w http.ResponseWriter, r *http.Request, d
 	w.WriteHeader(http.StatusAccepted)
 }
 
+func isAgentStatusEvent(name string) bool {
+	switch name {
+	case "agent.started", "agent.stopped", "agent.heartbeat", "agent.integrity_error",
+		"proxy.tamper_detected", "proxy.listener_unreachable", "proxy.remediated":
+		return true
+	default:
+		return false
+	}
+}
+
+func agentStatusSeverity(name string, data map[string]interface{}) string {
+	switch name {
+	case "proxy.tamper_detected", "proxy.listener_unreachable":
+		return "critical"
+	case "agent.integrity_error":
+		return "warning"
+	case "agent.heartbeat":
+		if value, ok := asBool(data["gateway_connected"]); ok && !value {
+			return "warning"
+		}
+		if value, ok := asString(data["proxy_integrity"]); ok && value != "ok" {
+			return "warning"
+		}
+	}
+	return "info"
+}
+
+func sanitizedAgentStatusData(data map[string]interface{}) map[string]interface{} {
+	if data == nil {
+		return map[string]interface{}{}
+	}
+	allowed := map[string]bool{
+		"agent_version": true, "protocol_version": true, "policy_version": true,
+		"uptime_seconds": true, "gateway_connected": true, "proxy_listener_alive": true,
+		"proxy_integrity": true, "prompt_capture": true, "semantic_classifier": true,
+		"service_status": true, "auto_reregister": true, "host": true, "port": true, "remediation": true,
+	}
+	out := make(map[string]interface{}, len(allowed))
+	for key, value := range data {
+		if allowed[key] {
+			out[key] = value
+		}
+	}
+	return out
+}
+
 func (h *ProxyHandler) emitEvent(deviceID, orgID string, r *http.Request, status int, latency time.Duration, bytesSent int64, decision string, ruleID *string) {
 	host := canonicalHost(r.Host)
 	port := extractPort(r)
@@ -564,6 +641,23 @@ func asInt64(v interface{}) (int64, bool) {
 		return n, true
 	case int32:
 		return int64(n), true
+	default:
+		return 0, false
+	}
+}
+
+func asFloat64(v interface{}) (float64, bool) {
+	switch n := v.(type) {
+	case float64:
+		return n, true
+	case float32:
+		return float64(n), true
+	case int:
+		return float64(n), true
+	case int64:
+		return float64(n), true
+	case int32:
+		return float64(n), true
 	default:
 		return 0, false
 	}

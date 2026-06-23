@@ -6,6 +6,7 @@ import (
 	"encoding/pem"
 	"fmt"
 	"net"
+	"net/http"
 	"os"
 	"strconv"
 	"strings"
@@ -225,6 +226,7 @@ func (a *Agent) Start(ctx context.Context) error {
 		Timestamp: time.Now(),
 		Data: map[string]interface{}{
 			"protocol_version": domain.ProtocolVersion,
+			"agent_version":    a.version,
 			"listen_addr":      cfg.ListenAddr,
 		},
 	})
@@ -300,14 +302,16 @@ func (a *Agent) Start(ctx context.Context) error {
 	a.cleanStaleProxy(ctx, host, port)
 
 	a.log.Info("phase: system proxy")
+	systemProxyRegistered := false
 	if err := a.adapter.Register(ctx, host, port); err != nil {
 		a.log.Warn("system proxy registration failed", "error", err)
 	} else {
+		systemProxyRegistered = true
 		a.log.Info("system proxy registered", "host", host, "port", port)
 	}
 
 	a.gt.go_("integrity-monitor", func(ctx context.Context) {
-		a.runIntegrityMonitor(ctx, cfg)
+		a.runIntegrityMonitor(ctx, cfg, systemProxyRegistered)
 	})
 
 	a.gt.go_("health-check", func(ctx context.Context) {
@@ -408,6 +412,17 @@ func (a *Agent) waitForRuntimeReady(ctx context.Context, enrollmentReady <-chan 
 func (a *Agent) shutdown() error {
 	cfg := a.configMgr.Get()
 	a.log.Info("agent shutting down")
+	a.collector.Emit("agent.stopped", &domain.EventPayload{
+		AgentID:   cfg.AgentID,
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"agent_version":  a.version,
+			"uptime_seconds": int64(time.Since(a.startTime).Seconds()),
+		},
+	})
+	if a.emitter != nil {
+		a.emitter.FlushNow()
+	}
 
 	ctx, cancel := context.WithTimeout(context.Background(), cfg.ShutdownTimeout)
 	defer cancel()
@@ -439,11 +454,6 @@ func (a *Agent) shutdown() error {
 	if a.gateway != nil {
 		a.gateway.Close()
 	}
-
-	a.collector.Emit("agent.stopped", &domain.EventPayload{
-		AgentID:   cfg.AgentID,
-		Timestamp: time.Now(),
-	})
 
 	a.log.Info("agent shutdown complete")
 	return nil
@@ -521,7 +531,7 @@ func (a *Agent) startProxyWithRetry(ctx context.Context, cfg *domain.AgentConfig
 	return nil, fmt.Errorf("proxy startup failed after %d attempts: %w", maxAttempts, lastErr)
 }
 
-func (a *Agent) runIntegrityMonitor(ctx context.Context, cfg *domain.AgentConfig) {
+func (a *Agent) runIntegrityMonitor(ctx context.Context, cfg *domain.AgentConfig, systemProxyRegistered bool) {
 	ticker := time.NewTicker(cfg.IntegrityCheckInterval)
 	defer ticker.Stop()
 	for {
@@ -531,10 +541,25 @@ func (a *Agent) runIntegrityMonitor(ctx context.Context, cfg *domain.AgentConfig
 		case <-ticker.C:
 			host, port := splitListenAddr(cfg.ListenAddr)
 			listenerAlive := a.probeListenAddr(host, port)
+			if !systemProxyRegistered {
+				a.emitAgentHeartbeat(cfg, listenerAlive, "unregistered")
+				continue
+			}
 
 			intact, err := a.adapter.VerifyIntegrity()
+			integrityState := "ok"
+			if err != nil {
+				integrityState = "error"
+			} else if !intact {
+				integrityState = "tampered"
+			}
+			a.emitAgentHeartbeat(cfg, listenerAlive, integrityState)
 			if err != nil {
 				a.log.Warn("integrity check error", "error", err)
+				a.collector.Emit("agent.integrity_error", &domain.EventPayload{
+					AgentID:   cfg.AgentID,
+					Timestamp: time.Now(),
+				})
 				continue
 			}
 
@@ -583,11 +608,95 @@ func (a *Agent) runIntegrityMonitor(ctx context.Context, cfg *domain.AgentConfig
 						a.log.Error("auto re-register failed", "error", err)
 					} else {
 						a.log.Info("proxy re-registered after tamper")
+						a.collector.Emit("proxy.remediated", &domain.EventPayload{
+							AgentID:   cfg.AgentID,
+							Timestamp: time.Now(),
+							Data: map[string]interface{}{
+								"remediation": "proxy_reregistered",
+							},
+						})
 					}
 				}
 			}
 		}
 	}
+}
+
+func (a *Agent) emitAgentHeartbeat(cfg *domain.AgentConfig, listenerAlive bool, integrityState string) {
+	a.collector.Emit("agent.heartbeat", &domain.EventPayload{
+		AgentID:   cfg.AgentID,
+		Timestamp: time.Now(),
+		Data: map[string]interface{}{
+			"agent_version":        a.version,
+			"protocol_version":     domain.ProtocolVersion,
+			"policy_version":       a.engine.Version(),
+			"uptime_seconds":       int64(time.Since(a.startTime).Seconds()),
+			"gateway_connected":    a.gateway != nil && a.gateway.Healthy(),
+			"proxy_listener_alive": listenerAlive,
+			"proxy_integrity":      integrityState,
+			"prompt_capture":       a.probeLocalHealth(cfg.PromptCaptureListenAddr, "/healthz"),
+			"semantic_classifier":  a.semanticClassifierHealth(cfg),
+			"service_status":       a.serviceStatus(),
+			"auto_reregister":      cfg.AutoReregister,
+		},
+	})
+}
+
+func (a *Agent) serviceStatus() string {
+	status, err := a.adapter.Status()
+	if err != nil {
+		return "unknown"
+	}
+	switch status {
+	case domain.ServiceNotInstalled:
+		return "not_installed"
+	case domain.ServiceStopped:
+		return "stopped"
+	case domain.ServiceRunning:
+		return "running"
+	case domain.ServiceDegraded:
+		return "degraded"
+	default:
+		return "unknown"
+	}
+}
+
+func (a *Agent) semanticClassifierHealth(cfg *domain.AgentConfig) string {
+	if !cfg.PromptSemanticsEnabled {
+		return "disabled"
+	}
+	base := strings.TrimSpace(cfg.PromptSemanticsLocalURL)
+	if base == "" {
+		return "unconfigured"
+	}
+	base = strings.TrimSuffix(base, "/v1/classify")
+	return a.probeHTTPHealth(base + "/healthz")
+}
+
+func (a *Agent) probeLocalHealth(addr, path string) string {
+	host, port := splitListenAddr(addr)
+	if host == "" || port == 0 {
+		return "unconfigured"
+	}
+	return a.probeHTTPHealth(fmt.Sprintf("http://%s:%d%s", host, port, path))
+}
+
+func (a *Agent) probeHTTPHealth(rawURL string) string {
+	ctx, cancel := context.WithTimeout(context.Background(), 750*time.Millisecond)
+	defer cancel()
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
+	if err != nil {
+		return "unconfigured"
+	}
+	resp, err := (&http.Client{Timeout: 750 * time.Millisecond}).Do(req)
+	if err != nil {
+		return "unreachable"
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		return "healthy"
+	}
+	return "degraded"
 }
 
 // cleanStaleProxy checks for leftover proxy settings from a previous agent

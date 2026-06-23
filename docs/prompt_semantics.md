@@ -35,11 +35,11 @@ The Go installer embeds `cmd/installer/assets/classifier`, and the bundle script
 
 For production, place the DeBERTa model directory into `cmd/installer/assets/classifier/model` before building the installer, or place it in `C:\ProgramData\Themisto\models\deberta` during managed deployment. The included `download-model.ps1` is a development helper, not an offline production artifact.
 
-The default local model is `microsoft/deberta-v3-small`. This is a normal base
-DeBERTa model, not a zero-shot/NLI classifier. The sidecar therefore does not
-pretend that the raw base model can classify prompts by itself; it loads the
-model for runtime validation and uses the local corporate policy scorer for
-clear endpoint DLP indicators. Ambiguous prompts are still escalated to the
+The default local model is
+`MoritzLaurer/deberta-v3-xsmall-zeroshot-v1.1-all-33`, an NLI-trained DeBERTa
+checkpoint suitable for local endpoint inference. Corporate policy statements
+from `labels.json` are supplied as zero-shot candidate labels. Exact DLP
+findings block before NLI, while uncertain NLI results are escalated to the
 gateway classifier path.
 
 Development commands:
@@ -88,7 +88,7 @@ powershell -ExecutionPolicy Bypass -File .\scripts\start-agent-dev.ps1 -RealDebe
   "confidence": 0.91,
   "reason": "The prompt appears to include sensitive credentials or corporate data.",
   "category": "corporate_data_risk",
-  "source": "local_deberta",
+  "source": "local_deberta_nli",
   "ambiguous": false
 }
 ```
@@ -97,11 +97,11 @@ Valid `decision` values are `forward`, `alert`, and `block`.
 
 ## Defaults
 
-- Local DeBERTa timeout: `250ms`
+- Local DeBERTa timeout: `1500ms`
 - Gateway Qwen timeout: `900ms`
-- Block threshold: `0.86`
-- Alert threshold: `0.68`
-- Ambiguous escalation threshold: `0.58`
+- Block threshold: `0.68`
+- Alert threshold: `0.55`
+- Ambiguous escalation threshold: `0.55`
 
 If semantic evaluation fails, the agent keeps the existing deterministic policy decision and fails open for the semantic layer.
 

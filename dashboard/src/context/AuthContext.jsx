@@ -13,6 +13,7 @@ export function AuthProvider({ children }) {
     };
 
     useEffect(() => {
+        localStorage.removeItem('themisto_operator_api_key');
         refreshUser()
             .finally(() => setLoading(false));
     }, []);

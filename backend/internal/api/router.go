@@ -20,6 +20,7 @@ type Server struct {
 	store            *store.Store
 	signer           *signing.Signer
 	apiKey           string
+	operatorOrgID    string
 	tokenTTL         time.Duration
 	publicBackendURL string
 	publicGatewayURL string
@@ -29,6 +30,7 @@ type Server struct {
 
 	corsAllowedOrigins map[string]bool
 	authRL             *rateLimiter
+	operatorAuthRL     *rateLimiter
 	enrollRL           *rateLimiter
 	generalRL          *rateLimiter
 }
@@ -37,6 +39,7 @@ func NewServer(
 	s *store.Store,
 	signer *signing.Signer,
 	apiKey string,
+	operatorOrgID string,
 	tokenTTL time.Duration,
 	publicBackendURL string,
 	publicGatewayURL string,
@@ -57,6 +60,7 @@ func NewServer(
 		store:              s,
 		signer:             signer,
 		apiKey:             apiKey,
+		operatorOrgID:      strings.TrimSpace(operatorOrgID),
 		tokenTTL:           tokenTTL,
 		publicBackendURL:   strings.TrimRight(publicBackendURL, "/"),
 		publicGatewayURL:   strings.TrimRight(publicGatewayURL, "/"),
@@ -65,6 +69,7 @@ func NewServer(
 		mux:                http.NewServeMux(),
 		corsAllowedOrigins: corsMap,
 		authRL:             newRateLimiter(5, time.Minute),
+		operatorAuthRL:     newRateLimiter(5, time.Minute),
 		enrollRL:           newRateLimiter(10, time.Minute),
 		generalRL:          newRateLimiter(60, time.Minute),
 	}
@@ -78,13 +83,18 @@ func NewServer(
 	// Organization management (API-key auth)
 	srv.mux.HandleFunc("POST /api/v1/orgs", srv.withAuth(srv.handleCreateOrg))
 
-	// Themisto operator control plane (API-key auth)
-	srv.mux.HandleFunc("GET /api/v1/operator/orgs", srv.withAuth(srv.handleOperatorListOrgs))
-	srv.mux.HandleFunc("POST /api/v1/operator/orgs", srv.withAuth(srv.handleOperatorCreateOrg))
-	srv.mux.HandleFunc("PUT /api/v1/operator/orgs/{orgID}/provisioning", srv.withAuth(srv.handleOperatorUpdateProvisioning))
-	srv.mux.HandleFunc("POST /api/v1/operator/orgs/{orgID}/deployment-package", srv.withAuth(srv.handleOperatorCreateDeploymentPackage))
-	srv.mux.HandleFunc("PUT /api/v1/operator/orgs/{orgID}/status", srv.withAuth(srv.handleOperatorUpdateStatus))
-	srv.mux.HandleFunc("POST /api/v1/operator/orgs/{orgID}/revoke-certs", srv.withAuth(srv.handleOperatorRevokeOrgCerts))
+	// Themisto operator console. Browser access exchanges the administrative
+	// key for a short-lived HttpOnly session; headless API access remains supported.
+	srv.mux.HandleFunc("POST /api/v1/operator/auth/login", withRateLimit(srv.operatorAuthRL, srv.handleOperatorLogin))
+	srv.mux.HandleFunc("POST /api/v1/operator/auth/logout", srv.handleOperatorLogout)
+	srv.mux.HandleFunc("GET /api/v1/operator/auth/me", srv.withOperatorAuth(srv.handleOperatorMe))
+	srv.mux.HandleFunc("GET /api/v1/operator/orgs", srv.withOperatorAuth(srv.handleOperatorListOrgs))
+	srv.mux.HandleFunc("GET /api/v1/operator/fleet", srv.withOperatorAuth(srv.handleOperatorFleet))
+	srv.mux.HandleFunc("POST /api/v1/operator/orgs", srv.withOperatorAuth(srv.handleOperatorCreateOrg))
+	srv.mux.HandleFunc("PUT /api/v1/operator/orgs/{orgID}/provisioning", srv.withOperatorAuth(srv.handleOperatorUpdateProvisioning))
+	srv.mux.HandleFunc("POST /api/v1/operator/orgs/{orgID}/deployment-package", srv.withOperatorAuth(srv.handleOperatorCreateDeploymentPackage))
+	srv.mux.HandleFunc("PUT /api/v1/operator/orgs/{orgID}/status", srv.withOperatorAuth(srv.handleOperatorUpdateStatus))
+	srv.mux.HandleFunc("POST /api/v1/operator/orgs/{orgID}/revoke-certs", srv.withOperatorAuth(srv.handleOperatorRevokeOrgCerts))
 
 	// Device/enrollment API (API-key auth)
 	srv.mux.HandleFunc("POST /api/v1/devices", srv.withAuth(srv.handleRegisterDevice))
@@ -174,7 +184,7 @@ func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 			w.Header().Set("Access-Control-Allow-Origin", origin)
 			w.Header().Set("Access-Control-Allow-Credentials", "true")
 			w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+			w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Themisto-Operator")
 		}
 	}
 	if r.Method == http.MethodOptions {

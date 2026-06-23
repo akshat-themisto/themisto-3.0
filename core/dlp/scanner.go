@@ -72,7 +72,7 @@ func newDefaultScanner() *Scanner {
 	s := &Scanner{}
 
 	s.piiPatterns = []pattern{
-		{name: "ssn", re: regexp.MustCompile(`\b(?:\d{3}-\d{2}-\d{4}|\d{9})\b`)},
+		{name: "ssn", re: regexp.MustCompile(`(?:^|[^a-zA-Z0-9_-])(?:\d{3}-\d{2}-\d{4}|\d{9})(?:$|[^a-zA-Z0-9_-])`)},
 		{name: "credit_card", re: regexp.MustCompile(`\b(?:4[0-9]{12}(?:[0-9]{3})?|5[1-5][0-9]{14}|3[47][0-9]{13}|6(?:011|5[0-9]{2})[0-9]{12}|3(?:0[0-5]|[68][0-9])[0-9]{11}|(?:2131|1800|35\d{3})\d{11})\b`)},
 		{name: "email", re: regexp.MustCompile(`\b[a-zA-Z0-9._%+\-]+@[a-zA-Z0-9.\-]+\.[a-zA-Z]{2,}\b`)},
 		{name: "phone_us", re: regexp.MustCompile(`\b(?:\+?1[-.\s]?)?\(?[2-9]\d{2}\)?[-.\s]?\d{3}[-.\s]?\d{4}\b`)},
@@ -81,6 +81,7 @@ func newDefaultScanner() *Scanner {
 	}
 
 	s.credentialPatterns = []pattern{
+		{name: "api_key_environment", re: regexp.MustCompile(`\bsk-(?:live|test|prod|production|dev|stage|staging)-[a-zA-Z0-9\-_]{8,}\b`)},
 		{name: "api_key_openai", re: regexp.MustCompile(`\bsk-(?:[a-zA-Z0-9]+-)?[a-zA-Z0-9\-_]{16,}\b`)},
 		{name: "api_key_anthropic", re: regexp.MustCompile(`\bsk-ant-[a-zA-Z0-9\-_]{20,}\b`)},
 		{name: "github_token", re: regexp.MustCompile(`\bghp_[a-zA-Z0-9]{36,}\b`)},

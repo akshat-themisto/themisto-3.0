@@ -503,7 +503,7 @@ export default function AIUsage() {
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                             <thead>
                                 <tr style={{ borderBottom: '1px solid #262626' }}>
-                                    <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-muted)', fontWeight: 500 }}>Endpoint Device ID</th>
+                                    <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-muted)', fontWeight: 500 }}>Endpoint</th>
                                     <th style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--text-muted)', fontWeight: 500 }}>AI Requests</th>
                                     <th style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--text-muted)', fontWeight: 500 }}>Vendors Used</th>
                                 </tr>
@@ -511,7 +511,7 @@ export default function AIUsage() {
                             <tbody>
                                 {topDevices.map((d, i) => (
                                     <tr key={i} style={{ borderBottom: '1px solid #1a1a1a' }}>
-                                        <td style={{ padding: '8px 12px', color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: 12 }}>{d.device_id}</td>
+                                        <td style={{ padding: '8px 12px', color: 'var(--text-primary)', fontWeight: 500 }}>{d.device_name || d.device_id?.substring(0, 8) || 'Unknown device'}</td>
                                         <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-primary)' }}>{(d.request_count || 0).toLocaleString()}</td>
                                         <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-muted)' }}>{d.vendor_count || 0}</td>
                                     </tr>
@@ -527,7 +527,7 @@ export default function AIUsage() {
                         <table style={{ width: '100%', borderCollapse: 'collapse', fontSize: 13 }}>
                             <thead>
                                 <tr style={{ borderBottom: '1px solid #262626' }}>
-                                    <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-muted)', fontWeight: 500 }}>Endpoint Device ID</th>
+                                    <th style={{ textAlign: 'left', padding: '8px 12px', color: 'var(--text-muted)', fontWeight: 500 }}>Endpoint</th>
                                     <th style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--text-muted)', fontWeight: 500 }}>Unapproved Events</th>
                                     <th style={{ textAlign: 'right', padding: '8px 12px', color: 'var(--text-muted)', fontWeight: 500 }}>Unique Vendors</th>
                                 </tr>
@@ -535,7 +535,7 @@ export default function AIUsage() {
                             <tbody>
                                 {topViolating.map((d, i) => (
                                     <tr key={i} style={{ borderBottom: '1px solid #1a1a1a' }}>
-                                        <td style={{ padding: '8px 12px', color: 'var(--text-primary)', fontFamily: 'monospace', fontSize: 12 }}>{d.device_id}</td>
+                                        <td style={{ padding: '8px 12px', color: 'var(--text-primary)', fontWeight: 500 }}>{d.device_name || d.device_id?.substring(0, 8) || 'Unknown device'}</td>
                                         <td style={{ padding: '8px 12px', textAlign: 'right', color: '#f59e0b' }}>{(d.unsanctioned_events || 0).toLocaleString()}</td>
                                         <td style={{ padding: '8px 12px', textAlign: 'right', color: 'var(--text-muted)' }}>{d.unique_vendors || 0}</td>
                                     </tr>

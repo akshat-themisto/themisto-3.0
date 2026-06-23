@@ -59,7 +59,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	apiKey := "test-api-key-" + fmt.Sprintf("%d", time.Now().UnixNano())
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := api.NewServer(db, signer, apiKey, 24*time.Hour, "http://localhost:8443", "https://gateway.test", nil, logger, nil)
+	handler := api.NewServer(db, signer, apiKey, "", 24*time.Hour, "http://localhost:8443", "https://gateway.test", nil, logger, nil)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 

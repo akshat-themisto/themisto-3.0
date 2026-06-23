@@ -73,16 +73,29 @@ func NewCertVerifier(backendURL, failMode, internalToken, controlURL, controlTok
 	}
 }
 
-func isValidHexSerial(s string) bool {
+func normalizeHexSerial(s string) (string, bool) {
+	s = strings.ToLower(strings.TrimSpace(strings.TrimPrefix(s, "0x")))
 	if len(s) == 0 || len(s) > 128 {
-		return false
+		return "", false
 	}
-	_, err := hex.DecodeString(s)
-	return err == nil
+	if len(s)%2 != 0 {
+		s = "0" + s
+	}
+	if _, err := hex.DecodeString(s); err != nil {
+		return "", false
+	}
+	return s, true
+}
+
+func isValidHexSerial(s string) bool {
+	_, ok := normalizeHexSerial(s)
+	return ok
 }
 
 func (v *CertVerifier) IsRevoked(serial string) (bool, error) {
-	if !isValidHexSerial(serial) {
+	var ok bool
+	serial, ok = normalizeHexSerial(serial)
+	if !ok {
 		return true, fmt.Errorf("invalid serial format")
 	}
 
@@ -155,6 +168,10 @@ func (v *CertVerifier) IsRevoked(serial string) (bool, error) {
 // Data is returned only when the cache entry exists, is unexpired, and both
 // identifiers are present.
 func (v *CertVerifier) LookupIdentity(serial string) (deviceID, orgID string, ok bool) {
+	serial, valid := normalizeHexSerial(serial)
+	if !valid {
+		return "", "", false
+	}
 	v.mu.RLock()
 	defer v.mu.RUnlock()
 

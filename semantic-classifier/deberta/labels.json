@@ -1,14 +1,39 @@
 {
-  "model_mode": "base_deberta_policy_scorer",
+  "model_mode": "zero_shot_nli",
   "candidate_labels": [
-    "corporate data risk",
-    "approved business AI use",
-    "ambiguous corporate AI request"
+    "exposure of passwords, access tokens, API keys, private keys, or other credentials",
+    "disclosure of regulated personal, customer, employee, health, or financial data",
+    "disclosure of proprietary source code, internal documents, or confidential business information",
+    "unsafe or unsanctioned use of an external AI service",
+    "approved business use involving public or non-sensitive information",
+    "an ambiguous workplace request requiring security review"
   ],
-  "block_label": "corporate data risk",
-  "allow_label": "approved business AI use",
-  "ambiguous_label": "ambiguous corporate AI request",
-  "hypothesis_template": "This workplace AI prompt is about {}.",
+  "block_labels": [
+    "exposure of passwords, access tokens, API keys, private keys, or other credentials",
+    "disclosure of regulated personal, customer, employee, health, or financial data",
+    "disclosure of proprietary source code, internal documents, or confidential business information"
+  ],
+  "alert_labels": [
+    "unsafe or unsanctioned use of an external AI service"
+  ],
+  "allow_labels": [
+    "approved business use involving public or non-sensitive information"
+  ],
+  "ambiguous_labels": [
+    "an ambiguous workplace request requiring security review"
+  ],
+  "category_map": {
+    "exposure of passwords, access tokens, API keys, private keys, or other credentials": "credential_exposure",
+    "disclosure of regulated personal, customer, employee, health, or financial data": "regulated_data_exposure",
+    "disclosure of proprietary source code, internal documents, or confidential business information": "proprietary_data_exposure",
+    "unsafe or unsanctioned use of an external AI service": "unsanctioned_ai_use",
+    "approved business use involving public or non-sensitive information": "approved_business_ai",
+    "an ambiguous workplace request requiring security review": "ambiguous_corporate_ai_request"
+  },
+  "block_threshold": 0.68,
+  "allow_threshold": 0.60,
+  "alert_threshold": 0.55,
+  "hypothesis_template": "This workplace request involves {}.",
   "block_terms": [
     "api key",
     "aws secret",

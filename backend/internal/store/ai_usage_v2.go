@@ -42,6 +42,7 @@ type AIUsageSummaryV2 struct {
 
 type AIViolatingDeviceStat struct {
 	DeviceID           string `json:"device_id"`
+	DeviceName         string `json:"device_name"`
 	UnsanctionedEvents int    `json:"unsanctioned_events"`
 	UniqueVendors      int    `json:"unique_vendors"`
 }
@@ -165,15 +166,18 @@ func (s *Store) GetTopAIViolatingDevices(ctx context.Context, orgID string, limi
 	rows, err := s.DB.QueryContext(ctx, `
 		SELECT
 			t.device_id,
+			COALESCE(d.device_name, ''),
 			COUNT(*) as unsanctioned_events,
 			COUNT(DISTINCT t.ai_vendor) as unique_vendors
 		FROM telemetry_events t
 		LEFT JOIN ai_vendor_governance g
 		  ON g.org_id::text = t.org_id AND g.ai_vendor = t.ai_vendor
+		LEFT JOIN devices d
+		  ON d.id::text = t.device_id AND d.org_id::text = t.org_id
 		WHERE t.org_id = $1 AND t.timestamp >= $2 AND t.timestamp <= $3
 		  AND t.ai_vendor IS NOT NULL
 		  AND COALESCE(g.sanctioned, false) = false
-		GROUP BY t.device_id
+		GROUP BY t.device_id, d.device_name
 		ORDER BY unsanctioned_events DESC
 		LIMIT $4`,
 		orgID, from, to, limit,
@@ -186,7 +190,7 @@ func (s *Store) GetTopAIViolatingDevices(ctx context.Context, orgID string, limi
 	out := make([]AIViolatingDeviceStat, 0)
 	for rows.Next() {
 		var row AIViolatingDeviceStat
-		if err := rows.Scan(&row.DeviceID, &row.UnsanctionedEvents, &row.UniqueVendors); err != nil {
+		if err := rows.Scan(&row.DeviceID, &row.DeviceName, &row.UnsanctionedEvents, &row.UniqueVendors); err != nil {
 			return nil, err
 		}
 		out = append(out, row)

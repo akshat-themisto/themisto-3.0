@@ -25,6 +25,11 @@ type AlertFeedItem struct {
 	ClassificationReason *string    `json:"classification_reason,omitempty"`
 	ReasonCode           *string    `json:"reason_code,omitempty"`
 	ReasonDetail         *string    `json:"reason_detail,omitempty"`
+	SemanticSource       *string    `json:"semantic_source,omitempty"`
+	SemanticCategory     *string    `json:"semantic_category,omitempty"`
+	SemanticConfidence   *float64   `json:"semantic_confidence,omitempty"`
+	SemanticAmbiguous    *bool      `json:"semantic_ambiguous,omitempty"`
+	SemanticReason       *string    `json:"semantic_reason,omitempty"`
 	MatchTypes           []string   `json:"match_types"`
 	MatchedPatterns      []string   `json:"matched_patterns"`
 	MatchedFields        []string   `json:"matched_fields"`
@@ -102,6 +107,7 @@ func (s *Store) ListAlerts(ctx context.Context, filter AlertFilter) ([]AlertFeed
 		SELECT e.id, e.timestamp, e.device_id, e.request_host, e.request_path, e.request_method,
 		       e.source_app, e.ai_vendor, e.service_category, e.action_taken, e.severity,
 		       e.classification_reason, e.reason_code, e.reason_detail,
+		       e.semantic_source, e.semantic_category, e.semantic_confidence, e.semantic_ambiguous, e.semantic_reason,
 		       e.match_types, e.matched_patterns, e.matched_fields,
 		       e.content_type, e.file_count,
 		       (e.request_body_encrypted IS NOT NULL) AS has_request_body,
@@ -139,6 +145,11 @@ func (s *Store) ListAlerts(ctx context.Context, filter AlertFilter) ([]AlertFeed
 			&item.ClassificationReason,
 			&item.ReasonCode,
 			&item.ReasonDetail,
+			&item.SemanticSource,
+			&item.SemanticCategory,
+			&item.SemanticConfidence,
+			&item.SemanticAmbiguous,
+			&item.SemanticReason,
 			pq.Array(&item.MatchTypes),
 			pq.Array(&item.MatchedPatterns),
 			pq.Array(&item.MatchedFields),

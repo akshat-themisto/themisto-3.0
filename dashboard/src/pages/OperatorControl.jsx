@@ -1,9 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
-import { api } from '../api/client';
+import { Link } from 'react-router-dom';
+import { operatorApi } from '../api/operatorClient';
 import { useToast } from '../context/ToastContext';
-import { Building2, CheckCircle2, Copy, Download, KeyRound, PackageCheck, PlugZap, Power, RefreshCw, ShieldOff, Terminal, Wifi, X } from 'lucide-react';
-
-const TOKEN_STORAGE_KEY = 'themisto_operator_api_key';
+import { Activity, Building2, CheckCircle2, Copy, Download, PackageCheck, PlugZap, Power, ShieldOff, Terminal, Wifi, X } from 'lucide-react';
 
 const emptyCreateForm = {
     name: '',
@@ -34,7 +33,6 @@ function formatDateTime(value) {
 
 export default function OperatorControl() {
     const toast = useToast();
-    const [operatorKey, setOperatorKey] = useState(() => localStorage.getItem(TOKEN_STORAGE_KEY) || '');
     const [orgs, setOrgs] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
@@ -56,20 +54,11 @@ export default function OperatorControl() {
         }, { total: 0, active: 0, suspended: 0, devices: 0, certs: 0 });
     }, [orgs]);
 
-    function rememberKey(value) {
-        setOperatorKey(value);
-        if (value.trim()) {
-            localStorage.setItem(TOKEN_STORAGE_KEY, value.trim());
-        } else {
-            localStorage.removeItem(TOKEN_STORAGE_KEY);
-        }
-    }
-
     async function loadOrgs() {
         setLoading(true);
         setError('');
         try {
-            const data = await api.operatorListOrgs(operatorKey);
+            const data = await operatorApi.listOrgs();
             setOrgs(data.organizations || []);
         } catch (err) {
             setError(err.message || 'Could not load operator organizations');
@@ -79,10 +68,7 @@ export default function OperatorControl() {
     }
 
     useEffect(() => {
-        if (operatorKey.trim()) {
-            loadOrgs();
-        }
-        // eslint-disable-next-line react-hooks/exhaustive-deps
+        loadOrgs();
     }, []);
 
     async function createOrg(e) {
@@ -91,7 +77,7 @@ export default function OperatorControl() {
         setError('');
         setLastCreated(null);
         try {
-            const data = await api.operatorCreateOrg(operatorKey, createForm);
+            const data = await operatorApi.createOrg(createForm);
             setLastCreated(data);
             setCreateForm(emptyCreateForm);
             setShowRegister(false);
@@ -110,7 +96,7 @@ export default function OperatorControl() {
         try {
             const backend = document.getElementById(`backend-${org.id}`)?.value || '';
             const gateway = document.getElementById(`gateway-${org.id}`)?.value || '';
-            await api.operatorUpdateProvisioning(operatorKey, org.id, {
+            await operatorApi.updateProvisioning(org.id, {
                 public_backend_url: backend.trim(),
                 public_gateway_url: gateway.trim(),
             });
@@ -144,7 +130,7 @@ export default function OperatorControl() {
         setSavingOrg(org.id);
         setError('');
         try {
-            await api.operatorUpdateStatus(operatorKey, org.id, { status, reason });
+            await operatorApi.updateStatus(org.id, { status, reason });
             await loadOrgs();
             toast.success(`Organization ${status}`);
         } catch (err) {
@@ -159,7 +145,7 @@ export default function OperatorControl() {
         setSavingOrg(org.id);
         setError('');
         try {
-            const res = await api.operatorRevokeOrgCerts(operatorKey, org.id);
+            const res = await operatorApi.revokeOrgCerts(org.id);
             await loadOrgs();
             toast.success(`${res.revoked_certs || 0} certificates revoked`);
         } catch (err) {
@@ -186,7 +172,7 @@ export default function OperatorControl() {
             const backend = document.getElementById(`backend-${org.id}`)?.value || org.public_backend_url || '';
             const gateway = document.getElementById(`gateway-${org.id}`)?.value || org.public_gateway_url || '';
             const options = packageOptions[org.id] || {};
-            const data = await api.operatorCreateDeploymentPackage(operatorKey, org.id, {
+            const data = await operatorApi.createDeploymentPackage(org.id, {
                 device_name: (options.device_name || '').trim(),
                 os: options.os || 'windows',
                 agent_version: (options.agent_version || '1.0.0').trim(),
@@ -244,30 +230,13 @@ export default function OperatorControl() {
                     <button className="btn btn-primary" onClick={() => setShowRegister((value) => !value)}>
                         <Building2 size={14} /> Register Org
                     </button>
+					<Link className="btn" to="/operator/fleet">
+						<Activity size={14} /> Fleet Monitor
+					</Link>
                 </div>
             </div>
 
             <div className="page-content operator-page">
-                <section className="operator-key-panel">
-                    <div className="operator-key-copy">
-                        <KeyRound size={18} />
-                        <div>
-                            <strong>Operator API key</strong>
-                            <span>Use the backend `ADMIN_API_KEY`. It stays in this browser only.</span>
-                        </div>
-                    </div>
-                    <input
-                        className="form-input"
-                        type="password"
-                        placeholder="Paste Themisto operator key"
-                        value={operatorKey}
-                        onChange={(e) => rememberKey(e.target.value)}
-                    />
-                    <button className="btn" onClick={loadOrgs} disabled={loading || !operatorKey.trim()}>
-                        <RefreshCw size={14} /> {loading ? 'Checking...' : 'Load'}
-                    </button>
-                </section>
-
                 {error && <div className="alert alert-danger">{error}</div>}
 
                 {lastCreated?.api_key && (
@@ -289,7 +258,7 @@ export default function OperatorControl() {
                         <div className="operator-register-grid">
                             <label>
                                 Organization name
-                                <input className="form-input" value={createForm.name} onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))} placeholder="Lincoln High" />
+								<input className="form-input" value={createForm.name} onChange={(e) => setCreateForm((f) => ({ ...f, name: e.target.value }))} placeholder="Acme Corporation" />
                             </label>
                             <label>
                                 Slug

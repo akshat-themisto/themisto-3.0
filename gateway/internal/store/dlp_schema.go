@@ -40,7 +40,12 @@ ALTER TABLE dlp_events
     ADD COLUMN IF NOT EXISTS classification_reason TEXT,
     ADD COLUMN IF NOT EXISTS content_type TEXT,
     ADD COLUMN IF NOT EXISTS file_count INTEGER NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS matched_fields TEXT[] NOT NULL DEFAULT '{}';
+    ADD COLUMN IF NOT EXISTS matched_fields TEXT[] NOT NULL DEFAULT '{}',
+    ADD COLUMN IF NOT EXISTS semantic_source TEXT,
+    ADD COLUMN IF NOT EXISTS semantic_category TEXT,
+    ADD COLUMN IF NOT EXISTS semantic_confidence DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS semantic_ambiguous BOOLEAN,
+    ADD COLUMN IF NOT EXISTS semantic_reason TEXT;
 
 UPDATE dlp_events SET action_taken = 'alert' WHERE action_taken IS NULL OR action_taken = '';
 UPDATE dlp_events SET protocol = 'http' WHERE protocol IS NULL OR protocol = '';
@@ -93,6 +98,9 @@ CREATE INDEX IF NOT EXISTS idx_dlp_events_org_severity_time
 CREATE INDEX IF NOT EXISTS idx_dlp_events_body_retention
     ON dlp_events (timestamp)
     WHERE request_body_encrypted IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_dlp_events_semantic_source_time
+    ON dlp_events (semantic_source, timestamp DESC)
+    WHERE semantic_source IS NOT NULL;
 `)
 	return err
 }

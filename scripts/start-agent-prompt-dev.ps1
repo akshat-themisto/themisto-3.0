@@ -27,7 +27,7 @@ if (-not (Test-Path -LiteralPath $CertPath -PathType Leaf) -or
 }
 
 if (-not (Test-Port 17177)) {
-    Write-Warning "No local classifier is listening on 127.0.0.1:17177. Start scripts\mock-deberta-classifier.ps1 in another terminal first."
+	Write-Warning "No local semantic classifier is listening on 127.0.0.1:17177. Prompt semantics will be unavailable until one starts."
 }
 
 New-Item -ItemType Directory -Force -Path $WorkDir | Out-Null
@@ -56,11 +56,11 @@ $cfg = [ordered]@{
     prompt_semantics_enabled = $true
     prompt_semantics_local_url = "http://127.0.0.1:17177/v1/classify"
     prompt_semantics_gateway_enabled = $true
-    prompt_semantics_local_timeout = "250ms"
+    prompt_semantics_local_timeout = "1500ms"
     prompt_semantics_gateway_timeout = $GatewaySemanticTimeout
-    prompt_semantics_block_threshold = 0.86
-    prompt_semantics_alert_threshold = 0.68
-    prompt_semantics_ambiguous_threshold = 0.58
+    prompt_semantics_block_threshold = 0.68
+    prompt_semantics_alert_threshold = 0.55
+    prompt_semantics_ambiguous_threshold = 0.55
 }
 
 $cfg | ConvertTo-Json -Depth 8 | Set-Content -LiteralPath $ConfigPath -Encoding ascii

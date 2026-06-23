@@ -2,6 +2,15 @@ package telemetry
 
 import "time"
 
+type AgentStatusEvent struct {
+	Timestamp time.Time
+	DeviceID  string
+	OrgID     string
+	EventType string
+	Severity  string
+	Data      map[string]interface{}
+}
+
 type Event struct {
 	Timestamp       time.Time
 	DeviceID        string
@@ -50,6 +59,11 @@ type DLPEvent struct {
 	PolicyRuleID         string
 	ReasonCode           string
 	ReasonDetail         string
+	SemanticSource       string
+	SemanticCategory     string
+	SemanticConfidence   float64
+	SemanticAmbiguous    bool
+	SemanticReason       string
 	Protocol             string
 	InterceptedHTTPS     bool
 	InspectionQuality    string

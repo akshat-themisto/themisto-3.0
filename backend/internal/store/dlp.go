@@ -16,6 +16,7 @@ type DLPEvent struct {
 	ID                   int64     `json:"id"`
 	Timestamp            time.Time `json:"timestamp"`
 	DeviceID             string    `json:"device_id"`
+	DeviceName           string    `json:"device_name"`
 	OrgID                string    `json:"org_id"`
 	RequestID            *string   `json:"request_id,omitempty"`
 	RequestHost          string    `json:"request_host"`
@@ -37,6 +38,11 @@ type DLPEvent struct {
 	RuleID               *string   `json:"rule_id,omitempty"`
 	ReasonCode           *string   `json:"reason_code,omitempty"`
 	ReasonDetail         *string   `json:"reason_detail,omitempty"`
+	SemanticSource       *string   `json:"semantic_source,omitempty"`
+	SemanticCategory     *string   `json:"semantic_category,omitempty"`
+	SemanticConfidence   *float64  `json:"semantic_confidence,omitempty"`
+	SemanticAmbiguous    *bool     `json:"semantic_ambiguous,omitempty"`
+	SemanticReason       *string   `json:"semantic_reason,omitempty"`
 	Protocol             string    `json:"protocol"`
 	InterceptedHTTPS     bool      `json:"intercepted_https"`
 	InspectionQuality    string    `json:"inspection_quality"`
@@ -51,6 +57,7 @@ type DLPEventBody struct {
 	ID                   int64     `json:"id"`
 	Timestamp            time.Time `json:"timestamp"`
 	DeviceID             string    `json:"device_id"`
+	DeviceName           string    `json:"device_name"`
 	RequestHost          string    `json:"request_host"`
 	RequestPath          *string   `json:"request_path,omitempty"`
 	RequestMethod        string    `json:"request_method"`
@@ -92,60 +99,64 @@ func (s *Store) ListDLPEvents(ctx context.Context, filter DLPFilter) ([]DLPEvent
 	argN := 1
 
 	if filter.OrgID != "" {
-		where += fmt.Sprintf(" AND org_id = $%d", argN)
+		where += fmt.Sprintf(" AND e.org_id = $%d", argN)
 		args = append(args, filter.OrgID)
 		argN++
 	}
 	if filter.DeviceID != "" {
-		where += fmt.Sprintf(" AND device_id = $%d", argN)
+		where += fmt.Sprintf(" AND e.device_id = $%d", argN)
 		args = append(args, filter.DeviceID)
 		argN++
 	}
 	if filter.RequestHost != "" {
-		where += fmt.Sprintf(" AND request_host ILIKE $%d", argN)
+		where += fmt.Sprintf(" AND e.request_host ILIKE $%d", argN)
 		args = append(args, "%"+filter.RequestHost+"%")
 		argN++
 	}
 	if filter.AIVendor != "" {
-		where += fmt.Sprintf(" AND ai_vendor = $%d", argN)
+		where += fmt.Sprintf(" AND e.ai_vendor = $%d", argN)
 		args = append(args, filter.AIVendor)
 		argN++
 	}
 	if filter.MatchType != "" {
-		where += fmt.Sprintf(" AND $%d = ANY(match_types)", argN)
+		where += fmt.Sprintf(" AND $%d = ANY(e.match_types)", argN)
 		args = append(args, filter.MatchType)
 		argN++
 	}
 	if filter.Protocol != "" {
-		where += fmt.Sprintf(" AND protocol = $%d", argN)
+		where += fmt.Sprintf(" AND e.protocol = $%d", argN)
 		args = append(args, filter.Protocol)
 		argN++
 	}
 	if filter.DateFrom != nil {
-		where += fmt.Sprintf(" AND timestamp >= $%d", argN)
+		where += fmt.Sprintf(" AND e.timestamp >= $%d", argN)
 		args = append(args, *filter.DateFrom)
 		argN++
 	}
 	if filter.DateTo != nil {
-		where += fmt.Sprintf(" AND timestamp <= $%d", argN)
+		where += fmt.Sprintf(" AND e.timestamp <= $%d", argN)
 		args = append(args, *filter.DateTo)
 		argN++
 	}
 
 	var total int
-	if err := s.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM dlp_events "+where, args...).Scan(&total); err != nil {
+	if err := s.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM dlp_events e "+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	offset := (filter.Page - 1) * filter.Limit
 	query := fmt.Sprintf(
-		`SELECT id, timestamp, device_id, org_id, request_id, request_host, request_path,
-		        request_method, source_app, service_category, ai_vendor,
-		        match_types, matched_patterns, matched_fields, match_count, severity, classification_reason, content_type, file_count, action_taken,
-		        policy_rule_id, reason_code, reason_detail,
-		        protocol, intercepted_https, inspection_quality, inspection_skip_reason, direction,
-		        (request_body_encrypted IS NOT NULL), request_body_truncated
-		 FROM dlp_events %s ORDER BY timestamp DESC LIMIT $%d OFFSET $%d`,
+		`SELECT e.id, e.timestamp, e.device_id, COALESCE(d.device_name, ''), e.org_id,
+		        e.request_id, e.request_host, e.request_path, e.request_method, e.source_app,
+		        e.service_category, e.ai_vendor, e.match_types, e.matched_patterns, e.matched_fields,
+		        e.match_count, e.severity, e.classification_reason, e.content_type, e.file_count, e.action_taken,
+		        e.policy_rule_id, e.reason_code, e.reason_detail,
+		        e.semantic_source, e.semantic_category, e.semantic_confidence, e.semantic_ambiguous, e.semantic_reason,
+		        e.protocol, e.intercepted_https, e.inspection_quality, e.inspection_skip_reason, e.direction,
+		        (e.request_body_encrypted IS NOT NULL), e.request_body_truncated
+		 FROM dlp_events e
+		 LEFT JOIN devices d ON d.id::text = e.device_id AND d.org_id::text = e.org_id
+		 %s ORDER BY e.timestamp DESC LIMIT $%d OFFSET $%d`,
 		where, argN, argN+1,
 	)
 	args = append(args, filter.Limit, offset)
@@ -160,12 +171,13 @@ func (s *Store) ListDLPEvents(ctx context.Context, filter DLPFilter) ([]DLPEvent
 	for rows.Next() {
 		var e DLPEvent
 		if err := rows.Scan(
-			&e.ID, &e.Timestamp, &e.DeviceID, &e.OrgID, &e.RequestID,
+			&e.ID, &e.Timestamp, &e.DeviceID, &e.DeviceName, &e.OrgID, &e.RequestID,
 			&e.RequestHost, &e.RequestPath, &e.RequestMethod,
 			&e.SourceApp, &e.ServiceCategory, &e.AIVendor,
 			pq.Array(&e.MatchTypes), pq.Array(&e.MatchedPatterns), pq.Array(&e.MatchedFields),
 			&e.MatchCount, &e.Severity, &e.ClassificationReason, &e.ContentType, &e.FileCount, &e.ActionTaken,
 			&e.PolicyRuleID, &e.ReasonCode, &e.ReasonDetail,
+			&e.SemanticSource, &e.SemanticCategory, &e.SemanticConfidence, &e.SemanticAmbiguous, &e.SemanticReason,
 			&e.Protocol, &e.InterceptedHTTPS, &e.InspectionQuality, &e.InspectionSkipReason, &e.Direction,
 			&e.HasRequestBody, &e.RequestBodyTruncated,
 		); err != nil {
@@ -192,24 +204,28 @@ func (s *Store) ListDLPEvents(ctx context.Context, filter DLPFilter) ([]DLPEvent
 // GetDLPEvent returns one DLP event by ID scoped to an org.
 func (s *Store) GetDLPEvent(ctx context.Context, orgID string, eventID int64) (*DLPEvent, error) {
 	row := s.DB.QueryRowContext(ctx, `
-		SELECT id, timestamp, device_id, org_id, request_id, request_host, request_path,
-		       request_method, source_app, service_category, ai_vendor,
-		       match_types, matched_patterns, matched_fields, match_count, severity, classification_reason, content_type, file_count, action_taken,
-		       policy_rule_id, reason_code, reason_detail,
-		       protocol, intercepted_https, inspection_quality, inspection_skip_reason, direction,
-		       (request_body_encrypted IS NOT NULL), request_body_truncated
-		FROM dlp_events
-		WHERE id = $1 AND org_id = $2
+		SELECT e.id, e.timestamp, e.device_id, COALESCE(d.device_name, ''), e.org_id,
+		       e.request_id, e.request_host, e.request_path, e.request_method, e.source_app,
+		       e.service_category, e.ai_vendor, e.match_types, e.matched_patterns, e.matched_fields,
+		       e.match_count, e.severity, e.classification_reason, e.content_type, e.file_count, e.action_taken,
+		       e.policy_rule_id, e.reason_code, e.reason_detail,
+		       e.semantic_source, e.semantic_category, e.semantic_confidence, e.semantic_ambiguous, e.semantic_reason,
+		       e.protocol, e.intercepted_https, e.inspection_quality, e.inspection_skip_reason, e.direction,
+		       (e.request_body_encrypted IS NOT NULL), e.request_body_truncated
+		FROM dlp_events e
+		LEFT JOIN devices d ON d.id::text = e.device_id AND d.org_id::text = e.org_id
+		WHERE e.id = $1 AND e.org_id = $2
 		LIMIT 1`, eventID, orgID)
 
 	var e DLPEvent
 	if err := row.Scan(
-		&e.ID, &e.Timestamp, &e.DeviceID, &e.OrgID, &e.RequestID,
+		&e.ID, &e.Timestamp, &e.DeviceID, &e.DeviceName, &e.OrgID, &e.RequestID,
 		&e.RequestHost, &e.RequestPath, &e.RequestMethod,
 		&e.SourceApp, &e.ServiceCategory, &e.AIVendor,
 		pq.Array(&e.MatchTypes), pq.Array(&e.MatchedPatterns), pq.Array(&e.MatchedFields),
 		&e.MatchCount, &e.Severity, &e.ClassificationReason, &e.ContentType, &e.FileCount, &e.ActionTaken,
 		&e.PolicyRuleID, &e.ReasonCode, &e.ReasonDetail,
+		&e.SemanticSource, &e.SemanticCategory, &e.SemanticConfidence, &e.SemanticAmbiguous, &e.SemanticReason,
 		&e.Protocol, &e.InterceptedHTTPS, &e.InspectionQuality, &e.InspectionSkipReason, &e.Direction,
 		&e.HasRequestBody, &e.RequestBodyTruncated,
 	); err != nil {
@@ -237,11 +253,13 @@ func (s *Store) GetDLPEvent(ctx context.Context, orgID string, eventID int64) (*
 // GetDLPEventBody returns decrypted request body for a DLP event in the org.
 func (s *Store) GetDLPEventBody(ctx context.Context, orgID string, eventID int64) (*DLPEventBody, error) {
 	row := s.DB.QueryRowContext(ctx, `
-		SELECT id, timestamp, device_id, request_host, request_path, request_method, source_app,
-		       protocol, intercepted_https, inspection_quality, inspection_skip_reason, direction,
-		       request_body_encrypted, request_body_nonce, request_body_truncated
-		FROM dlp_events
-		WHERE id = $1 AND org_id = $2`,
+		SELECT e.id, e.timestamp, e.device_id, COALESCE(d.device_name, ''), e.request_host,
+		       e.request_path, e.request_method, e.source_app, e.protocol, e.intercepted_https,
+		       e.inspection_quality, e.inspection_skip_reason, e.direction,
+		       e.request_body_encrypted, e.request_body_nonce, e.request_body_truncated
+		FROM dlp_events e
+		LEFT JOIN devices d ON d.id::text = e.device_id AND d.org_id::text = e.org_id
+		WHERE e.id = $1 AND e.org_id = $2`,
 		eventID, orgID,
 	)
 
@@ -252,6 +270,7 @@ func (s *Store) GetDLPEventBody(ctx context.Context, orgID string, eventID int64
 		&out.ID,
 		&out.Timestamp,
 		&out.DeviceID,
+		&out.DeviceName,
 		&out.RequestHost,
 		&out.RequestPath,
 		&out.RequestMethod,

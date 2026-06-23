@@ -545,7 +545,7 @@ func ensureInstallerConfigDefaults(cfg map[string]interface{}) {
 		cfg["prompt_semantics_gateway_enabled"] = true
 	}
 	if strings.TrimSpace(getString(cfg, "prompt_semantics_local_timeout")) == "" {
-		cfg["prompt_semantics_local_timeout"] = "250ms"
+		cfg["prompt_semantics_local_timeout"] = "1500ms"
 	}
 	if strings.TrimSpace(getString(cfg, "prompt_semantics_gateway_timeout")) == "" {
 		cfg["prompt_semantics_gateway_timeout"] = "900ms"

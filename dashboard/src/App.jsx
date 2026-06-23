@@ -11,7 +11,6 @@ import Telemetry from './pages/Telemetry';
 import Settings from './pages/Settings';
 import AIUsage from './pages/AIUsage';
 import DLPEvents from './pages/DLPEvents';
-import OperatorControl from './pages/OperatorControl';
 
 function ProtectedRoute({ children }) {
   const { user, loading } = useAuth();
@@ -31,6 +30,8 @@ function App() {
         <BrowserRouter>
           <Routes>
             <Route path="/login" element={<Login />} />
+            <Route path="/operator/*" element={<Navigate to="/" replace />} />
+            <Route path="/fleet" element={<Navigate to="/" replace />} />
             <Route path="/" element={<ProtectedRoute><Layout /></ProtectedRoute>}>
               <Route index element={<Overview />} />
               <Route path="devices" element={<Devices />} />
@@ -40,7 +41,6 @@ function App() {
               <Route path="settings" element={<Settings />} />
               <Route path="ai-usage" element={<AIUsage />} />
               <Route path="dlp" element={<DLPEvents />} />
-              <Route path="operator" element={<OperatorControl />} />
             </Route>
           </Routes>
         </BrowserRouter>

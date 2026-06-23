@@ -62,7 +62,7 @@ function ConvertTo-ClassifierResult($RawText) {
             decision = "alert"
             confidence = 0.5
             reason = "Qwen returned a non-JSON classifier response."
-            category = "ambiguous_academic_request"
+            category = "ambiguous_corporate_ai_request"
             source = "gateway_qwen"
             ambiguous = $true
         }

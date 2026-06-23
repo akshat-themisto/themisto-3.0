@@ -58,6 +58,23 @@ func TestScan_Credentials_OpenAITestKey(t *testing.T) {
 	}
 }
 
+func TestScan_Credentials_EnvironmentKeyIsNotSSN(t *testing.T) {
+	body := []byte(`this is my live key sk-live-123456789`)
+	info := Scan(body, nil)
+	if !info.ContainsCredentials {
+		t.Fatal("expected environment-prefixed key to be detected as credentials")
+	}
+	if info.ContainsPII {
+		t.Fatalf("expected embedded key digits not to be classified as PII: %#v", info.Matches)
+	}
+	if info.Severity != "critical" {
+		t.Fatalf("severity=%q want=critical", info.Severity)
+	}
+	if len(info.Matches) != 1 || info.Matches[0].Pattern != "api_key_environment" {
+		t.Fatalf("matches=%#v want one api_key_environment match", info.Matches)
+	}
+}
+
 func TestScan_Credentials_AWSKey(t *testing.T) {
 	body := []byte(`AKIAIOSFODNN7EXAMPLE`)
 	info := Scan(body, nil)

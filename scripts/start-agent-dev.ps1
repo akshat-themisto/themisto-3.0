@@ -1,5 +1,7 @@
 param(
     [switch]$RealDeberta,
+	[switch]$MockDeberta,
+	[switch]$AllowNonAdmin,
     [switch]$MockQwen,
     [switch]$GatewayLLM,
     [string]$GatewayLLMModel = "llama3.2:latest",
@@ -8,6 +10,7 @@ param(
     [string]$ListenAddr = "127.0.0.1:19090",
     [string]$PromptListenAddr = "127.0.0.1:17175",
     [string]$CertDir = "C:\ProgramData\Themisto\certs",
+    [string]$DebertaModelDir = "C:\ProgramData\Themisto\models\deberta",
     [string]$GatewaySemanticTimeout = ""
 )
 
@@ -16,20 +19,53 @@ $ErrorActionPreference = "Stop"
 $Root = Resolve-Path (Join-Path $PSScriptRoot "..")
 $HelperJobs = @()
 
+function Test-IsAdministrator {
+	$identity = [Security.Principal.WindowsIdentity]::GetCurrent()
+	$principal = [Security.Principal.WindowsPrincipal]::new($identity)
+	return $principal.IsInRole([Security.Principal.WindowsBuiltInRole]::Administrator)
+}
+
+if ($RealDeberta -and $MockDeberta) {
+	throw "Choose either -RealDeberta or -MockDeberta, not both."
+}
+
+if (-not $AllowNonAdmin -and -not (Test-IsAdministrator)) {
+	throw "Run this script from Administrator PowerShell. Use -AllowNonAdmin only for capture-only development without Windows proxy registration."
+}
+
 function Test-Port($Port) {
     return [bool](Get-NetTCPConnection -LocalAddress 127.0.0.1 -LocalPort $Port -ErrorAction SilentlyContinue)
+}
+
+function Test-HelperReady([int]$Port, [string]$HealthURL) {
+    if (-not (Test-Port $Port)) {
+        return $false
+    }
+    if ([string]::IsNullOrWhiteSpace($HealthURL)) {
+        return $true
+    }
+    try {
+        $health = Invoke-RestMethod -Uri $HealthURL -TimeoutSec 3
+        return [bool]$health.ok -and $health.model_mode -eq "zero_shot_nli"
+    } catch {
+        return $false
+    }
 }
 
 function Start-HelperJob {
     param(
         [string]$Name,
         [string]$Command,
-        [int]$Port
+        [int]$Port,
+        [string]$HealthURL = ""
     )
 
-    if (Test-Port $Port) {
+    if (Test-HelperReady $Port $HealthURL) {
         Write-Host "$Name already listening on 127.0.0.1:$Port"
         return
+    }
+    if (Test-Port $Port) {
+        throw "$Name has a listener on 127.0.0.1:$Port, but its health check failed. Stop the stale classifier process and retry."
     }
 
     $job = Start-Job -Name $Name -ScriptBlock {
@@ -38,11 +74,20 @@ function Start-HelperJob {
     } -ArgumentList $Command
 
     $script:HelperJobs += $job
-    Start-Sleep -Milliseconds 800
+	$deadline = (Get-Date).AddMinutes(10)
+	while ((Get-Date) -lt $deadline -and -not (Test-HelperReady $Port $HealthURL)) {
+		Start-Sleep -Milliseconds 500
+		if ($job.State -in @("Failed", "Completed", "Stopped")) {
+			$output = Receive-Job -Job $job -ErrorVariable jobErrors -ErrorAction SilentlyContinue | Out-String
+			$errorText = $jobErrors | Out-String
+			$reason = $job.ChildJobs[0].JobStateInfo.Reason
+			throw "$Name failed to start.`n$output$errorText$reason"
+		}
+	}
 
-    if ($job.State -eq "Failed") {
-        Receive-Job -Job $job
-        throw "$Name failed to start."
+	if (-not (Test-HelperReady $Port $HealthURL)) {
+		$output = Receive-Job -Job $job -Keep -ErrorAction SilentlyContinue | Out-String
+		throw "$Name did not become healthy on 127.0.0.1:$Port within 10 minutes. $output"
     }
 
     Write-Host "Started $Name on 127.0.0.1:$Port"
@@ -51,13 +96,21 @@ function Start-HelperJob {
 Set-Location $Root
 
 try {
-    if ($RealDeberta) {
+	$installedModelReady = (Test-Path -LiteralPath (Join-Path $DebertaModelDir "config.json") -PathType Leaf)
+	$useRealDeberta = $RealDeberta -or (-not $MockDeberta -and $installedModelReady)
+
+	if ($useRealDeberta) {
         $classifier = Join-Path $Root "semantic-classifier\deberta\start-semantic-classifier.ps1"
         Start-HelperJob `
             -Name "ThemistoRealDebertaDev" `
             -Port 17177 `
-            -Command "powershell -NoProfile -ExecutionPolicy Bypass -File `"$classifier`" -ClassifierDir `"$Root\semantic-classifier\deberta`" -ModelDir `"C:\ProgramData\Themisto\models\deberta`""
+			-HealthURL "http://127.0.0.1:17177/healthz" `
+			-Command "powershell -NoProfile -ExecutionPolicy Bypass -File `"$classifier`" -ClassifierDir `"$Root\semantic-classifier\deberta`" -ModelDir `"$DebertaModelDir`""
+		Write-Host "Using installed DeBERTa model at $DebertaModelDir"
     } else {
+		if (-not $MockDeberta) {
+			Write-Warning "No installed DeBERTa model was found at $DebertaModelDir. Falling back to the mock classifier. Pass -MockDeberta to make this explicit."
+		}
         $mockDeberta = Join-Path $Root "scripts\mock-deberta-classifier.ps1"
         Start-HelperJob `
             -Name "ThemistoMockDebertaDev" `

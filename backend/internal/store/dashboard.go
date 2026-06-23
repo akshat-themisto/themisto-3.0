@@ -165,6 +165,7 @@ type TelemetryEvent struct {
 	ID             int64     `json:"id"`
 	Timestamp      time.Time `json:"timestamp"`
 	DeviceID       string    `json:"device_id"`
+	DeviceName     string    `json:"device_name"`
 	OrgID          string    `json:"org_id"`
 	RequestMethod  string    `json:"request_method"`
 	RequestHost    string    `json:"request_host"`
@@ -206,47 +207,50 @@ func (s *Store) ListTelemetryEvents(ctx context.Context, filter TelemetryFilter)
 	argN := 1
 
 	if filter.OrgID != "" {
-		where += fmt.Sprintf(" AND org_id = $%d", argN)
+		where += fmt.Sprintf(" AND e.org_id = $%d", argN)
 		args = append(args, filter.OrgID)
 		argN++
 	}
 	if filter.DeviceID != "" {
-		where += fmt.Sprintf(" AND device_id = $%d", argN)
+		where += fmt.Sprintf(" AND e.device_id = $%d", argN)
 		args = append(args, filter.DeviceID)
 		argN++
 	}
 	if filter.RequestHost != "" {
-		where += fmt.Sprintf(" AND request_host ILIKE $%d", argN)
+		where += fmt.Sprintf(" AND e.request_host ILIKE $%d", argN)
 		args = append(args, "%"+filter.RequestHost+"%")
 		argN++
 	}
 	if filter.PolicyDecision != "" {
-		where += fmt.Sprintf(" AND policy_decision = $%d", argN)
+		where += fmt.Sprintf(" AND e.policy_decision = $%d", argN)
 		args = append(args, filter.PolicyDecision)
 		argN++
 	}
 	if filter.DateFrom != nil {
-		where += fmt.Sprintf(" AND timestamp >= $%d", argN)
+		where += fmt.Sprintf(" AND e.timestamp >= $%d", argN)
 		args = append(args, *filter.DateFrom)
 		argN++
 	}
 	if filter.DateTo != nil {
-		where += fmt.Sprintf(" AND timestamp <= $%d", argN)
+		where += fmt.Sprintf(" AND e.timestamp <= $%d", argN)
 		args = append(args, *filter.DateTo)
 		argN++
 	}
 
 	var total int
-	if err := s.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM telemetry_events "+where, args...).Scan(&total); err != nil {
+	if err := s.DB.QueryRowContext(ctx, "SELECT COUNT(*) FROM telemetry_events e "+where, args...).Scan(&total); err != nil {
 		return nil, 0, err
 	}
 
 	offset := (filter.Page - 1) * filter.Limit
 	query := fmt.Sprintf(
-		`SELECT id, timestamp, device_id, org_id, request_method, request_host, request_path,
-		        request_port, response_status, latency_ms, bytes_sent, bytes_received,
-		        policy_decision, matched_rule_id, policy_version, agent_version, source_app, os
-		 FROM telemetry_events %s ORDER BY timestamp DESC LIMIT $%d OFFSET $%d`,
+		`SELECT e.id, e.timestamp, e.device_id, COALESCE(d.device_name, ''), e.org_id,
+		        e.request_method, e.request_host, e.request_path, e.request_port, e.response_status,
+		        e.latency_ms, e.bytes_sent, e.bytes_received, e.policy_decision, e.matched_rule_id,
+		        e.policy_version, e.agent_version, e.source_app, e.os
+		 FROM telemetry_events e
+		 LEFT JOIN devices d ON d.id::text = e.device_id AND d.org_id::text = e.org_id
+		 %s ORDER BY e.timestamp DESC LIMIT $%d OFFSET $%d`,
 		where, argN, argN+1,
 	)
 	args = append(args, filter.Limit, offset)
@@ -260,7 +264,7 @@ func (s *Store) ListTelemetryEvents(ctx context.Context, filter TelemetryFilter)
 	var events []TelemetryEvent
 	for rows.Next() {
 		var e TelemetryEvent
-		if err := rows.Scan(&e.ID, &e.Timestamp, &e.DeviceID, &e.OrgID, &e.RequestMethod,
+		if err := rows.Scan(&e.ID, &e.Timestamp, &e.DeviceID, &e.DeviceName, &e.OrgID, &e.RequestMethod,
 			&e.RequestHost, &e.RequestPath, &e.RequestPort, &e.ResponseStatus, &e.LatencyMs,
 			&e.BytesSent, &e.BytesReceived, &e.PolicyDecision, &e.MatchedRuleID,
 			&e.PolicyVersion, &e.AgentVersion, &e.SourceApp, &e.OS); err != nil {
@@ -576,6 +580,7 @@ func (s *Store) GetAIUsageSummary(ctx context.Context, orgID string, from, to ti
 // AIDeviceStat holds AI request counts per device.
 type AIDeviceStat struct {
 	DeviceID     string `json:"device_id"`
+	DeviceName   string `json:"device_name"`
 	RequestCount int    `json:"request_count"`
 	VendorCount  int    `json:"vendor_count"`
 }
@@ -586,11 +591,13 @@ func (s *Store) GetTopAIDevices(ctx context.Context, orgID string, limit int, fr
 		limit = 10
 	}
 	rows, err := s.DB.QueryContext(ctx, `
-		SELECT device_id, COUNT(*) as request_count, COUNT(DISTINCT ai_vendor) as vendor_count
-		FROM telemetry_events
-		WHERE org_id = $1 AND timestamp >= $2 AND timestamp <= $3
-		  AND ai_vendor IS NOT NULL
-		GROUP BY device_id
+		SELECT t.device_id, COALESCE(d.device_name, ''), COUNT(*) as request_count,
+		       COUNT(DISTINCT t.ai_vendor) as vendor_count
+		FROM telemetry_events t
+		LEFT JOIN devices d ON d.id::text = t.device_id AND d.org_id::text = t.org_id
+		WHERE t.org_id = $1 AND t.timestamp >= $2 AND t.timestamp <= $3
+		  AND t.ai_vendor IS NOT NULL
+		GROUP BY t.device_id, d.device_name
 		ORDER BY request_count DESC
 		LIMIT $4`,
 		orgID, from, to, limit,
@@ -602,7 +609,7 @@ func (s *Store) GetTopAIDevices(ctx context.Context, orgID string, limit int, fr
 	var stats []AIDeviceStat
 	for rows.Next() {
 		var st AIDeviceStat
-		if err := rows.Scan(&st.DeviceID, &st.RequestCount, &st.VendorCount); err != nil {
+		if err := rows.Scan(&st.DeviceID, &st.DeviceName, &st.RequestCount, &st.VendorCount); err != nil {
 			return nil, err
 		}
 		stats = append(stats, st)

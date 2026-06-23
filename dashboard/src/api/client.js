@@ -19,11 +19,11 @@ function redirectTo(path) {
 
 async function request(path, options = {}) {
     const url = `${API_BASE_URL}${path}`;
-    const { suppressAuthRedirect = false, ...fetchOptions } = options;
+    const { suppressAuthRedirect = false, headers = {}, ...fetchOptions } = options;
     const config = {
         credentials: 'include',
-        headers: { 'Content-Type': 'application/json', ...fetchOptions.headers },
         ...fetchOptions,
+        headers: { 'Content-Type': 'application/json', ...headers },
     };
 
     const res = await fetch(url, config);
@@ -54,26 +54,11 @@ async function request(path, options = {}) {
     return data;
 }
 
-async function operatorRequest(path, operatorToken, options = {}) {
-    const token = (operatorToken || '').trim();
-    if (!token) {
-        throw new ApiError('Operator API key is required', { status: 401, code: 'OPERATOR_KEY_REQUIRED' });
-    }
-    return request(path, {
-        ...options,
-        suppressAuthRedirect: true,
-        headers: {
-            ...(options.headers || {}),
-            Authorization: `Bearer ${token}`,
-        },
-    });
-}
-
 export const api = {
     // Auth
     login: (email, password) => request('/api/v1/auth/login', { method: 'POST', body: JSON.stringify({ email, password }) }),
     logout: () => request('/api/v1/auth/logout', { method: 'POST' }),
-    me: () => request('/api/v1/auth/me'),
+    me: () => request('/api/v1/auth/me', { suppressAuthRedirect: true }),
     acceptTerms: () => request('/api/v1/auth/terms/accept', { method: 'POST' }),
 
     // Dashboard
@@ -189,11 +174,4 @@ export const api = {
     evidenceDLPCSVUrl: () => `${API_BASE_URL}/api/v1/evidence/dlp.csv`,
     evidenceAuditCSVUrl: () => `${API_BASE_URL}/api/v1/evidence/audit.csv`,
 
-    // Themisto operator control
-    operatorListOrgs: (token) => operatorRequest('/api/v1/operator/orgs', token),
-    operatorCreateOrg: (token, data) => operatorRequest('/api/v1/operator/orgs', token, { method: 'POST', body: JSON.stringify(data) }),
-    operatorUpdateProvisioning: (token, orgID, data) => operatorRequest(`/api/v1/operator/orgs/${orgID}/provisioning`, token, { method: 'PUT', body: JSON.stringify(data) }),
-    operatorCreateDeploymentPackage: (token, orgID, data) => operatorRequest(`/api/v1/operator/orgs/${orgID}/deployment-package`, token, { method: 'POST', body: JSON.stringify(data) }),
-    operatorUpdateStatus: (token, orgID, data) => operatorRequest(`/api/v1/operator/orgs/${orgID}/status`, token, { method: 'PUT', body: JSON.stringify(data) }),
-    operatorRevokeOrgCerts: (token, orgID) => operatorRequest(`/api/v1/operator/orgs/${orgID}/revoke-certs`, token, { method: 'POST' }),
 };

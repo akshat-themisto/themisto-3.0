@@ -3,7 +3,7 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { AlertTriangle, Code, Eye, Key, Shield, Tag } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Code, Eye, Key, Shield, Tag } from 'lucide-react';
 
 const DLP_MODE_RULE_NAME = 'Quick: Corporate DLP Baseline';
 const DLP_MODE_RULE_PRIORITY = 6;
@@ -173,7 +173,7 @@ function PromptModal({ event, data, loading, error, onClose }) {
                     <div>
                         <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>Captured Prompt Body</div>
                         <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-muted)' }}>
-                            {event.request_host}  {event.request_method}  {event.source_app || 'unknown app'}
+                            {event.device_name || event.device_id?.substring(0, 8) || 'Unknown device'}  {event.request_host}  {event.source_app || 'unknown app'}
                         </div>
                     </div>
                     <button className="btn btn-secondary" onClick={onClose}>Close</button>
@@ -204,6 +204,7 @@ function PromptModal({ event, data, loading, error, onClose }) {
                                 flexWrap: 'wrap',
                             }}>
                                 <span>Event ID: {data?.id}</span>
+                                <span>Device: {data?.device_name || data?.device_id?.substring(0, 8) || 'Unknown device'}</span>
                                 <span>Time: {data?.timestamp ? new Date(data.timestamp).toLocaleString() : '-'}</span>
                                 <span>{data?.truncated ? 'Truncated at capture limit' : 'Full capture available'}</span>
                             </div>
@@ -231,9 +232,67 @@ function PromptModal({ event, data, loading, error, onClose }) {
 }
 
 function formatReason(e) {
+    if (e.semantic_reason && String(e.semantic_reason).trim()) return e.semantic_reason;
     if (e.reason_detail && String(e.reason_detail).trim()) return e.reason_detail;
     if (e.reason_code && String(e.reason_code).trim()) return e.reason_code;
     return '-';
+}
+
+function hasSemanticDecision(e) {
+    return Boolean(
+        e?.semantic_source
+        || e?.semantic_category
+        || String(e?.reason_code || '').startsWith('semantic_')
+    );
+}
+
+function formatConfidence(value) {
+    const n = Number(value);
+    if (!Number.isFinite(n) || n <= 0) return '';
+    return `${Math.round(n * 100)}%`;
+}
+
+function formatSemanticLabel(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return '';
+    return raw
+        .replace(/^semantic[_-]?/i, '')
+        .replace(/[_-]+/g, ' ')
+        .replace(/\b\w/g, (m) => m.toUpperCase());
+}
+
+function DecisionSourceBadge({ event }) {
+    if (!hasSemanticDecision(event)) {
+        return (
+            <span className="badge" style={{ color: MUTED_COLOR }}>
+                Rule Engine
+            </span>
+        );
+    }
+
+    const source = formatSemanticLabel(event.semantic_source) || 'Semantic';
+    const category = formatSemanticLabel(event.semantic_category);
+    const confidence = formatConfidence(event.semantic_confidence);
+    const ambiguous = event.semantic_ambiguous === true;
+    const detail = [category, confidence, ambiguous ? 'Ambiguous' : ''].filter(Boolean).join(' / ');
+
+    return (
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 5, minWidth: 132 }}>
+            <span className="badge" style={{
+                background: 'rgba(116,200,158,0.12)',
+                borderColor: 'rgba(116,200,158,0.28)',
+                color: SUCCESS_COLOR,
+                width: 'fit-content',
+            }}>
+                {source}
+            </span>
+            {detail && (
+                <span style={{ color: 'var(--text-muted)', fontSize: 11, lineHeight: 1.25 }}>
+                    {detail}
+                </span>
+            )}
+        </div>
+    );
 }
 
 export default function DLPEvents() {
@@ -246,6 +305,7 @@ export default function DLPEvents() {
     const [events, setEvents] = useState([]);
     const [total, setTotal] = useState(0);
     const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(25);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
     const [filters, setFilters] = useState({ host: '', ai_vendor: '', match_type: '' });
@@ -262,6 +322,7 @@ export default function DLPEvents() {
     const [queryOpenHandled, setQueryOpenHandled] = useState('');
 
     const capturedPromptCount = useMemo(() => events.filter((e) => e.has_request_body).length, [events]);
+    const semanticEventCount = useMemo(() => events.filter(hasSemanticDecision).length, [events]);
 
     const syncManagedRuleState = (rules) => {
         const rule = findManagedModeRule(rules);
@@ -314,7 +375,7 @@ export default function DLPEvents() {
         setLoadError('');
         Promise.all([
             api.dlpSummary(),
-            api.listDLPEvents({ page, ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v)) }),
+            api.listDLPEvents({ page, limit: pageSize, ...Object.fromEntries(Object.entries(filters).filter(([, v]) => v)) }),
         ])
             .then(([sum, evts]) => {
                 setSummary(sum);
@@ -326,7 +387,7 @@ export default function DLPEvents() {
                 console.error(err);
             })
             .finally(() => setLoading(false));
-    }, [page, filters]);
+    }, [page, pageSize, filters]);
 
     useEffect(() => {
         fetchData();
@@ -396,7 +457,9 @@ export default function DLPEvents() {
         { label: 'Source Code', value: summary?.code_events ?? 0, icon: <Code size={16} />, color: '#c4c4c4' },
     ];
 
-    const totalPages = Math.max(1, Math.ceil(total / 25));
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const firstVisibleEvent = total === 0 ? 0 : ((page - 1) * pageSize) + 1;
+    const lastVisibleEvent = Math.min(page * pageSize, total);
 
     return (
         <>
@@ -434,6 +497,9 @@ export default function DLPEvents() {
                             Prompt Captures: {capturedPromptCount}
                         </span>
                     )}
+                    <span className="dlp-capture-chip">
+                        Semantic: {semanticEventCount}
+                    </span>
                     <span className="dlp-window-note">Last 30 days</span>
                 </div>
             </div>
@@ -498,14 +564,12 @@ export default function DLPEvents() {
                                         <thead>
                                             <tr>
                                                 <th>Time</th>
-                                                <th>Host</th>
-                                                <th>App</th>
-                                                <th>AI Vendor</th>
-                                                <th>Detections</th>
-                                                <th>Patterns</th>
+                                                <th>Device</th>
+                                                <th>Destination</th>
+                                                <th>Detection</th>
                                                 <th>Outcome</th>
+                                                <th>Decision</th>
                                                 <th>Severity</th>
-                                                <th>Why</th>
                                                 {isAdmin && <th>Prompt</th>}
                                             </tr>
                                         </thead>
@@ -514,22 +578,31 @@ export default function DLPEvents() {
                                                 return (
                                                     <tr key={e.id || `${e.timestamp}-${e.request_host}-${e.match_count}-${idx}`}>
                                                         <td className="dlp-meta-cell">{new Date(e.timestamp).toLocaleString()}</td>
-                                                        <td className="dlp-host-cell">{e.request_host}</td>
-                                                        <td className="dlp-meta-cell">{e.source_app || '-'}</td>
-                                                        <td className="dlp-meta-cell">{e.ai_vendor || '-'}</td>
-                                                        <td>
-                                                            {(e.match_types || []).map((t) => (
-                                                                <MatchTypeBadge key={t} type={t} />
-                                                            ))}
+                                                        <td className="dlp-meta-cell" style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                                                            {e.device_name || e.device_id?.substring(0, 8) || 'Unknown device'}
                                                         </td>
-                                                        <td className="dlp-reason-cell">
-                                                            {(e.matched_patterns || []).join(', ') || '-'}
+                                                        <td className="dlp-destination-cell">
+                                                            <strong>{e.request_host}</strong>
+                                                            <span>{[e.source_app, e.ai_vendor].filter(Boolean).join(' / ') || 'Unknown application'}</span>
+                                                        </td>
+                                                        <td className="dlp-detection-cell">
+                                                            <div className="dlp-detection-badges">
+                                                                {(e.match_types || []).map((t) => (
+                                                                    <MatchTypeBadge key={t} type={t} />
+                                                                ))}
+                                                            </div>
+                                                            <span title={(e.matched_patterns || []).join(', ')}>
+                                                                {(e.matched_patterns || []).join(', ') || 'No pattern details'}
+                                                            </span>
                                                         </td>
                                                         <td><OutcomeBadge action={e.action_taken} /></td>
+                                                        <td className="dlp-decision-cell">
+                                                            <DecisionSourceBadge event={e} />
+                                                            <span className="dlp-why-text" title={formatReason(e)}>{formatReason(e)}</span>
+                                                        </td>
                                                         <td className="dlp-severity-cell">{String(e.severity || 'low').toUpperCase()}</td>
-                                                        <td className="dlp-reason-cell">{formatReason(e)}</td>
                                                         {isAdmin && (
-                                                            <td>
+                                                            <td className="dlp-prompt-column">
                                                                 <div className="dlp-prompt-cell">
                                                                     <PromptStatusBadge hasRequestBody={!!e.has_request_body} />
                                                                     {e.id ? (
@@ -555,19 +628,40 @@ export default function DLPEvents() {
                             )}
                         </div>
 
-                        {totalPages > 1 && (
-                            <div className="data-table-footer">
+                        <div className="data-table-footer dlp-pagination-footer">
+                            <div className="dlp-page-range">
+                                <strong>{firstVisibleEvent}-{lastVisibleEvent}</strong> of {total.toLocaleString()} events
+                            </div>
+                            <div className="dlp-pagination-controls">
+                                <label>
+                                    Rows
+                                    <select
+                                        className="form-select dlp-page-size"
+                                        value={pageSize}
+                                        onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}
+                                    >
+                                        <option value={25}>25</option>
+                                        <option value={50}>50</option>
+                                        <option value={100}>100</option>
+                                    </select>
+                                </label>
                                 <span>Page {page} of {totalPages}</span>
                                 <div className="pagination">
-                                    <button onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
-                                        Previous
+                                    <button title="First page" aria-label="First page" onClick={() => setPage(1)} disabled={page === 1}>
+                                        <ChevronsLeft size={15} />
                                     </button>
-                                    <button onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
-                                        Next
+                                    <button title="Previous page" aria-label="Previous page" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
+                                        <ChevronLeft size={15} />
+                                    </button>
+                                    <button title="Next page" aria-label="Next page" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
+                                        <ChevronRight size={15} />
+                                    </button>
+                                    <button title="Last page" aria-label="Last page" onClick={() => setPage(totalPages)} disabled={page === totalPages}>
+                                        <ChevronsRight size={15} />
                                     </button>
                                 </div>
                             </div>
-                        )}
+                        </div>
                     </>
                 )}
             </div>

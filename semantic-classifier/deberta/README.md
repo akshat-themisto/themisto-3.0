@@ -27,18 +27,10 @@ Then test:
 Invoke-RestMethod http://127.0.0.1:17177/healthz
 ```
 
-The default download model is `microsoft/deberta-v3-small`.
+The default model is
+`MoritzLaurer/deberta-v3-xsmall-zeroshot-v1.1-all-33`. It is an NLI-trained
+DeBERTa checkpoint sized for local endpoint inference. The corporate policy
+statements in `labels.json` are evaluated as zero-shot candidate labels.
 
-That model is a normal base DeBERTa model, not a zero-shot/NLI classifier. By
-default the sidecar loads the base model for local runtime validation and uses
-the corporate policy scorer in `labels.json` for data leakage, credentials,
-source code, regulated data, unsafe AI use, and unsanctioned AI indicators. If
-you deploy a real zero-shot/NLI or fine-tuned classifier head, set
-`THEMISTO_SEMANTIC_MODEL_MODE=zero_shot_nli` and provide matching labels.
-
-For development with an explicit NLI model, pass:
-
-```powershell
-powershell -ExecutionPolicy Bypass -File .\semantic-classifier\deberta\download-model.ps1 `
-  -ModelId "MoritzLaurer/deberta-v3-base-zeroshot-v2.0"
-```
+Deterministic DLP findings still block first. NLI handles contextual risks and
+paraphrases; uncertain results return `alert` for gateway review.

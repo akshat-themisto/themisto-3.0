@@ -81,6 +81,42 @@ type TelemetryEvent struct {
 	CaptureSurface  *string
 }
 
+type AgentStatusEvent struct {
+	Timestamp time.Time
+	DeviceID  string
+	OrgID     string
+	EventType string
+	Severity  string
+	Data      map[string]interface{}
+}
+
+func (s *Store) InsertAgentStatusBatch(ctx context.Context, events []AgentStatusEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+
+	var b strings.Builder
+	b.WriteString(`INSERT INTO agent_status_events
+		(timestamp, device_id, org_id, event_type, severity, data) VALUES `)
+	args := make([]interface{}, 0, len(events)*6)
+	for i, event := range events {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		base := i * 6
+		fmt.Fprintf(&b, "($%d,$%d,$%d,$%d,$%d,$%d::jsonb)",
+			base+1, base+2, base+3, base+4, base+5, base+6)
+		data, err := json.Marshal(event.Data)
+		if err != nil {
+			return fmt.Errorf("marshal agent status data: %w", err)
+		}
+		args = append(args, event.Timestamp, event.DeviceID, event.OrgID,
+			event.EventType, event.Severity, string(data))
+	}
+	_, err := s.DB.ExecContext(ctx, b.String(), args...)
+	return err
+}
+
 func (s *Store) InsertTelemetryBatch(ctx context.Context, events []TelemetryEvent) error {
 	if len(events) == 0 {
 		return nil
@@ -405,6 +441,11 @@ type DLPEvent struct {
 	PolicyRuleID         string
 	ReasonCode           string
 	ReasonDetail         string
+	SemanticSource       string
+	SemanticCategory     string
+	SemanticConfidence   float64
+	SemanticAmbiguous    bool
+	SemanticReason       string
 	Protocol             string
 	InterceptedHTTPS     bool
 	InspectionQuality    string
@@ -426,20 +467,22 @@ func (s *Store) InsertDLPBatch(ctx context.Context, events []DLPEvent) error {
 		 source_app, service_category, ai_vendor, match_types, matched_patterns, matched_fields, match_count,
 		 severity, classification_reason, content_type, file_count, action_taken,
 		 policy_rule_id, reason_code, reason_detail,
+		 semantic_source, semantic_category, semantic_confidence, semantic_ambiguous, semantic_reason,
 		 protocol, intercepted_https, inspection_quality, inspection_skip_reason, direction,
 		 request_body_encrypted, request_body_nonce, request_body_truncated)
 		VALUES `)
 
-	args := make([]interface{}, 0, len(events)*30)
+	args := make([]interface{}, 0, len(events)*35)
 	for i, e := range events {
 		if i > 0 {
 			b.WriteString(",")
 		}
-		base := i * 30
-		fmt.Fprintf(&b, "($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
+		base := i * 35
+		fmt.Fprintf(&b, "($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d)",
 			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8, base+9, base+10,
 			base+11, base+12, base+13, base+14, base+15, base+16, base+17, base+18, base+19, base+20,
-			base+21, base+22, base+23, base+24, base+25, base+26, base+27, base+28, base+29, base+30)
+			base+21, base+22, base+23, base+24, base+25, base+26, base+27, base+28, base+29, base+30,
+			base+31, base+32, base+33, base+34, base+35)
 
 		action := e.ActionTaken
 		if action == "" {
@@ -492,12 +535,28 @@ func (s *Store) InsertDLPBatch(ctx context.Context, events []DLPEvent) error {
 			pq.Array(matchTypes), pq.Array(matchedPatterns), pq.Array(matchedFields),
 			e.MatchCount, severity, strings.TrimSpace(e.ClassificationReason), strings.TrimSpace(e.ContentType), e.FileCount, action,
 			e.PolicyRuleID, e.ReasonCode, e.ReasonDetail,
+			emptyStringAsNil(e.SemanticSource), emptyStringAsNil(e.SemanticCategory), semanticConfidenceOrNil(e.SemanticConfidence), e.SemanticAmbiguous, emptyStringAsNil(e.SemanticReason),
 			protocol, e.InterceptedHTTPS, inspectionQuality, e.InspectionSkipReason, direction,
 			encBody, nonce, e.RequestBodyTruncated)
 	}
 
 	_, err := s.DB.ExecContext(ctx, b.String(), args...)
 	return err
+}
+
+func emptyStringAsNil(v string) interface{} {
+	v = strings.TrimSpace(v)
+	if v == "" {
+		return nil
+	}
+	return v
+}
+
+func semanticConfidenceOrNil(v float64) interface{} {
+	if v <= 0 {
+		return nil
+	}
+	return v
 }
 
 type bodyCipher struct {

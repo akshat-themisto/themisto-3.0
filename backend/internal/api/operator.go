@@ -144,7 +144,7 @@ func (s *Server) handleOperatorCreateOrg(w http.ResponseWriter, r *http.Request)
 
 	_ = s.store.InsertAudit(r.Context(), nil, &store.AuditEntry{
 		ActorType:    "system",
-		ActorID:      "operator",
+		ActorID:      getOperatorActorID(r),
 		OrgID:        &org.ID,
 		Action:       "operator.org.registered",
 		ResourceType: "organization",
@@ -196,7 +196,7 @@ func (s *Server) handleOperatorUpdateProvisioning(w http.ResponseWriter, r *http
 	}
 	_ = s.store.InsertAudit(r.Context(), nil, &store.AuditEntry{
 		ActorType:    "system",
-		ActorID:      "operator",
+		ActorID:      getOperatorActorID(r),
 		OrgID:        &orgID,
 		Action:       "operator.org.provisioning.updated",
 		ResourceType: "organization",
@@ -254,7 +254,7 @@ func (s *Server) handleOperatorCreateDeploymentPackage(w http.ResponseWriter, r 
 		req.OS,
 		req.AgentVersion,
 		"system",
-		"operator",
+		getOperatorActorID(r),
 		ttl,
 	)
 	if err != nil {
@@ -303,7 +303,7 @@ func (s *Server) handleOperatorCreateDeploymentPackage(w http.ResponseWriter, r 
 
 	_ = s.store.InsertAudit(r.Context(), nil, &store.AuditEntry{
 		ActorType:    "system",
-		ActorID:      "operator",
+		ActorID:      getOperatorActorID(r),
 		OrgID:        &orgID,
 		Action:       "operator.deployment_package.created",
 		ResourceType: "device",
@@ -361,7 +361,7 @@ func (s *Server) handleOperatorUpdateStatus(w http.ResponseWriter, r *http.Reque
 	}
 	defer tx.Rollback()
 
-	if err := s.store.UpdateOrganizationStatus(r.Context(), tx, orgID, req.Status, req.Reason, "operator"); err != nil {
+	if err := s.store.UpdateOrganizationStatus(r.Context(), tx, orgID, req.Status, req.Reason, getOperatorActorID(r)); err != nil {
 		s.logger.Error("operator update org status", "org_id", orgID, "error", err)
 		writeError(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
@@ -411,7 +411,7 @@ func (s *Server) handleOperatorUpdateStatus(w http.ResponseWriter, r *http.Reque
 
 	_ = s.store.InsertAudit(r.Context(), tx, &store.AuditEntry{
 		ActorType:    "system",
-		ActorID:      "operator",
+		ActorID:      getOperatorActorID(r),
 		OrgID:        &orgID,
 		Action:       "operator.org.status.updated",
 		ResourceType: "organization",
@@ -457,7 +457,7 @@ func (s *Server) handleOperatorRevokeOrgCerts(w http.ResponseWriter, r *http.Req
 	}
 	_ = s.store.InsertAudit(r.Context(), tx, &store.AuditEntry{
 		ActorType:    "system",
-		ActorID:      "operator",
+		ActorID:      getOperatorActorID(r),
 		OrgID:        &orgID,
 		Action:       "operator.org.certs.revoked",
 		ResourceType: "organization",

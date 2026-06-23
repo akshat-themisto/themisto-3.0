@@ -55,12 +55,17 @@ class DebertaClassifier:
         self.model_dir = model_dir
         self.model_mode = os.environ.get(
             "THEMISTO_SEMANTIC_MODEL_MODE",
-            str(self.labels.get("model_mode", "base_deberta_policy_scorer")),
+            str(self.labels.get("model_mode", "zero_shot_nli")),
         )
         self.candidate_labels: List[str] = list(self.labels["candidate_labels"])
-        self.block_label = str(self.labels.get("block_label", "corporate data risk"))
-        self.allow_label = str(self.labels.get("allow_label", "approved business AI use"))
-        self.ambiguous_label = str(self.labels.get("ambiguous_label", "ambiguous corporate AI request"))
+        self.block_labels = set(self.labels.get("block_labels", [self.labels.get("block_label", "corporate data risk")]))
+        self.alert_labels = set(self.labels.get("alert_labels", []))
+        self.allow_labels = set(self.labels.get("allow_labels", [self.labels.get("allow_label", "approved business AI use")]))
+        self.ambiguous_labels = set(self.labels.get("ambiguous_labels", [self.labels.get("ambiguous_label", "ambiguous corporate AI request")]))
+        self.category_map: Dict[str, str] = dict(self.labels.get("category_map", {}))
+        self.block_threshold = float(self.labels.get("block_threshold", 0.68))
+        self.allow_threshold = float(self.labels.get("allow_threshold", 0.58))
+        self.alert_threshold = float(self.labels.get("alert_threshold", 0.55))
         self.hypothesis_template = str(
             self.labels.get("hypothesis_template", "This workplace AI prompt is about {}.")
         )
@@ -98,6 +103,17 @@ class DebertaClassifier:
         if not text:
             raise HTTPException(status_code=400, detail="prompt_text is required")
 
+        if self._has_deterministic_dlp_signal(req):
+            return SemanticResult(
+                decision="block",
+                confidence=0.99,
+                reason="Themisto's deterministic DLP scanner found credentials, source code, regulated data, or another protected value.",
+                category="deterministic_dlp_match",
+                source="local_dlp_guard",
+                ambiguous=False,
+                latency_ms=int((time.perf_counter() - start) * 1000),
+            )
+
         if self.pipe is None:
             return self._classify_with_policy_scorer(req, start)
 
@@ -114,20 +130,24 @@ class DebertaClassifier:
 
         top_label = labels[0]
         confidence = max(0.0, min(1.0, scores[0]))
-        ambiguous = top_label == self.ambiguous_label or confidence < 0.58
+        category = self.category_map.get(top_label, "ambiguous_corporate_ai_request")
 
-        if top_label == self.block_label and confidence >= 0.68:
+        if top_label in self.block_labels and confidence >= self.block_threshold:
             decision = "block"
-            category = "corporate_data_risk"
-            reason = "The prompt appears to expose sensitive corporate data or unsafe AI use."
-        elif top_label == self.allow_label and confidence >= 0.58:
+            reason = "The NLI model found a high-confidence corporate data or AI policy risk."
+            ambiguous = False
+        elif top_label in self.allow_labels and confidence >= self.allow_threshold:
             decision = "forward"
-            category = "approved_business_ai"
             reason = "The prompt appears consistent with approved business AI use."
+            ambiguous = False
+        elif top_label in self.alert_labels and confidence >= self.alert_threshold:
+            decision = "alert"
+            reason = "The NLI model found a potential policy risk that should be recorded for review."
+            ambiguous = False
         else:
             decision = "alert"
             category = "ambiguous_corporate_ai_request"
-            reason = "The local classifier is uncertain and should be reviewed by the gateway fallback."
+            reason = "The local NLI classifier is uncertain and should be reviewed by the gateway fallback."
             ambiguous = True
 
         return SemanticResult(
@@ -135,9 +155,20 @@ class DebertaClassifier:
             confidence=confidence,
             reason=reason,
             category=category,
-            source="local_deberta",
+            source="local_deberta_nli",
             ambiguous=ambiguous,
             latency_ms=int((time.perf_counter() - start) * 1000),
+        )
+
+    @staticmethod
+    def _has_deterministic_dlp_signal(req: SemanticRequest) -> bool:
+        dlp_payload = req.dlp or {}
+        return bool(
+            dlp_payload.get("has_matches")
+            or dlp_payload.get("match_count")
+            or dlp_payload.get("contains_credentials")
+            or dlp_payload.get("contains_source_code")
+            or dlp_payload.get("contains_pii")
         )
 
     def _classify_with_policy_scorer(self, req: SemanticRequest, start: float) -> SemanticResult:
@@ -159,20 +190,11 @@ class DebertaClassifier:
         alert_hits = [term for term in self.alert_terms if term and term in combined]
         allow_hits = [term for term in self.allow_terms if term and term in combined]
 
-        dlp_payload = req.dlp or {}
-        dlp_signal = bool(
-            dlp_payload.get("has_matches")
-            or dlp_payload.get("match_count")
-            or dlp_payload.get("contains_credentials")
-            or dlp_payload.get("contains_source_code")
-            or dlp_payload.get("contains_pii")
-        )
-
-        if dlp_signal or len(block_hits) >= 2:
+        if len(block_hits) >= 2:
             reason = "The prompt appears to include sensitive data, credentials, source code, regulated records, or explicit exfiltration intent."
             return SemanticResult(
                 decision="block",
-                confidence=0.88 if dlp_signal else 0.82,
+                confidence=0.82,
                 reason=reason,
                 category="corporate_data_risk",
                 source="local_deberta_policy_scorer",
@@ -234,9 +256,9 @@ def startup() -> None:
 def healthz() -> Dict[str, Any]:
     return {
         "ok": classifier is not None,
-        "source": "local_deberta",
+        "source": "local_deberta_nli" if classifier and classifier.model_mode == "zero_shot_nli" else "local_deberta",
         "model_dir": os.environ.get("THEMISTO_SEMANTIC_MODEL_DIR", DEFAULT_MODEL_DIR),
-        "model_mode": os.environ.get("THEMISTO_SEMANTIC_MODEL_MODE", "base_deberta_policy_scorer"),
+        "model_mode": classifier.model_mode if classifier else os.environ.get("THEMISTO_SEMANTIC_MODEL_MODE", "unknown"),
         "error": startup_error,
     }
 

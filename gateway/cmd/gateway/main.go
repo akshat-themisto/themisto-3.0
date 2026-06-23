@@ -50,6 +50,10 @@ func main() {
 		logger.Error("failed to ensure DLP event schema", "error", err)
 		os.Exit(1)
 	}
+	if err := db.EnsureAgentStatusSchema(context.Background()); err != nil {
+		logger.Error("failed to ensure agent status schema", "error", err)
+		os.Exit(1)
+	}
 
 	tlsConfig, err := mtls.NewTLSConfig(cfg.TLS.CertPath, cfg.TLS.KeyPath, cfg.TLS.CAChainPath)
 	if err != nil {

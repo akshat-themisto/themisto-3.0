@@ -14,6 +14,7 @@ import (
 type Buffer struct {
 	ch       chan Event
 	dlpCh    chan DLPEvent
+	statusCh chan AgentStatusEvent
 	db       *store.Store
 	logger   *slog.Logger
 	batch    int
@@ -27,6 +28,7 @@ func NewBuffer(db *store.Store, bufferSize, batchSize int, flushInterval time.Du
 	return &Buffer{
 		ch:       make(chan Event, bufferSize),
 		dlpCh:    make(chan DLPEvent, bufferSize),
+		statusCh: make(chan AgentStatusEvent, bufferSize),
 		db:       db,
 		logger:   logger,
 		batch:    batchSize,
@@ -56,6 +58,17 @@ func (b *Buffer) EmitDLP(e DLPEvent) {
 	}
 }
 
+func (b *Buffer) EmitAgentStatus(e AgentStatusEvent) {
+	select {
+	case b.statusCh <- e:
+	default:
+		b.mu.Lock()
+		b.dropped++
+		b.mu.Unlock()
+		metrics.TelemetryEventsDropped.Inc()
+	}
+}
+
 func (b *Buffer) Start(ctx context.Context) {
 	b.wg.Add(1)
 	go b.run(ctx)
@@ -64,6 +77,7 @@ func (b *Buffer) Start(ctx context.Context) {
 func (b *Buffer) Stop() {
 	close(b.ch)
 	close(b.dlpCh)
+	close(b.statusCh)
 	b.wg.Wait()
 }
 
@@ -75,6 +89,7 @@ func (b *Buffer) run(ctx context.Context) {
 
 	pending := make([]Event, 0, b.batch)
 	pendingDLP := make([]DLPEvent, 0, b.batch)
+	pendingStatus := make([]AgentStatusEvent, 0, b.batch)
 
 	for {
 		select {
@@ -82,6 +97,7 @@ func (b *Buffer) run(ctx context.Context) {
 			if !ok {
 				b.flush(ctx, pending)
 				b.flushDLP(ctx, pendingDLP)
+				b.flushAgentStatus(ctx, pendingStatus)
 				return
 			}
 			pending = append(pending, e)
@@ -98,6 +114,15 @@ func (b *Buffer) run(ctx context.Context) {
 				b.flushDLP(ctx, pendingDLP)
 				pendingDLP = pendingDLP[:0]
 			}
+		case e, ok := <-b.statusCh:
+			if !ok {
+				continue
+			}
+			pendingStatus = append(pendingStatus, e)
+			if len(pendingStatus) >= b.batch {
+				b.flushAgentStatus(ctx, pendingStatus)
+				pendingStatus = pendingStatus[:0]
+			}
 		case <-ticker.C:
 			if len(pending) > 0 {
 				b.flush(ctx, pending)
@@ -107,7 +132,31 @@ func (b *Buffer) run(ctx context.Context) {
 				b.flushDLP(ctx, pendingDLP)
 				pendingDLP = pendingDLP[:0]
 			}
+			if len(pendingStatus) > 0 {
+				b.flushAgentStatus(ctx, pendingStatus)
+				pendingStatus = pendingStatus[:0]
+			}
 		}
+	}
+}
+
+func (b *Buffer) flushAgentStatus(ctx context.Context, events []AgentStatusEvent) {
+	if len(events) == 0 {
+		return
+	}
+	storeEvents := make([]store.AgentStatusEvent, len(events))
+	for i, event := range events {
+		storeEvents[i] = store.AgentStatusEvent{
+			Timestamp: event.Timestamp,
+			DeviceID:  event.DeviceID,
+			OrgID:     event.OrgID,
+			EventType: event.EventType,
+			Severity:  event.Severity,
+			Data:      event.Data,
+		}
+	}
+	if err := b.db.InsertAgentStatusBatch(ctx, storeEvents); err != nil {
+		b.logger.Error("agent status flush failed", "count", len(events), "error", err)
 	}
 }
 
@@ -225,6 +274,11 @@ func (b *Buffer) flushDLP(ctx context.Context, events []DLPEvent) {
 			PolicyRuleID:         e.PolicyRuleID,
 			ReasonCode:           e.ReasonCode,
 			ReasonDetail:         e.ReasonDetail,
+			SemanticSource:       e.SemanticSource,
+			SemanticCategory:     e.SemanticCategory,
+			SemanticConfidence:   e.SemanticConfidence,
+			SemanticAmbiguous:    e.SemanticAmbiguous,
+			SemanticReason:       e.SemanticReason,
 			Protocol:             e.Protocol,
 			InterceptedHTTPS:     e.InterceptedHTTPS,
 			InspectionQuality:    e.InspectionQuality,

@@ -19,8 +19,9 @@ type Config struct {
 
 	Public PublicConfig `yaml:"public"`
 
-	DBDSN       string `yaml:"-"`
-	AdminAPIKey string `yaml:"-"`
+	DBDSN         string `yaml:"-"`
+	AdminAPIKey   string `yaml:"-"`
+	OperatorOrgID string `yaml:"-"`
 
 	DLPBodyRetentionDays int      `yaml:"-"`
 	CORSAllowedOrigins   []string `yaml:"-"`
@@ -105,6 +106,7 @@ func Load(path string) (*Config, error) {
 	if cfg.AdminAPIKey == "" {
 		return nil, fmt.Errorf("ADMIN_API_KEY environment variable is required")
 	}
+	cfg.OperatorOrgID = strings.TrimSpace(os.Getenv("OPERATOR_ORG_ID"))
 
 	if v := os.Getenv("PUBLIC_BACKEND_URL"); v != "" {
 		cfg.Public.BackendURL = v

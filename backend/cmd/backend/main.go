@@ -47,6 +47,10 @@ func main() {
 		logger.Error("failed to ensure DLP event schema", "error", err)
 		os.Exit(1)
 	}
+	if err := db.EnsureAgentStatusSchema(context.Background()); err != nil {
+		logger.Error("failed to ensure agent status schema", "error", err)
+		os.Exit(1)
+	}
 
 	signer, err := signing.NewSigner(
 		cfg.Signing.CACertPath,
@@ -73,6 +77,7 @@ func main() {
 			db,
 			signer,
 			cfg.AdminAPIKey,
+			cfg.OperatorOrgID,
 			time.Duration(cfg.Token.ExpiryHours)*time.Hour,
 			cfg.Public.BackendURL,
 			cfg.Public.GatewayURL,

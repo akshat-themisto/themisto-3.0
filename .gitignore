@@ -29,6 +29,8 @@ pg_data/
 # Python
 __pycache__/
 *.pyc
+**/.venv/
+.runtime/
 
 # JavaScript package manager caches
 .npm/

@@ -239,6 +239,33 @@ func TestLookupIdentity(t *testing.T) {
 	}
 }
 
+func TestIsRevoked_NormalizesOddLengthCertificateSerial(t *testing.T) {
+	mux := http.NewServeMux()
+	mux.HandleFunc("/internal/cert-status/02ba", func(w http.ResponseWriter, r *http.Request) {
+		json.NewEncoder(w).Encode(certStatusResponse{
+			Serial:   "02ba",
+			Status:   "active",
+			DeviceID: "dev-odd",
+			OrgID:    "org-1",
+		})
+	})
+	srv := httptest.NewServer(mux)
+	defer srv.Close()
+
+	v := NewCertVerifier(srv.URL, "closed", "", "", "", "", 0, time.Minute, 100, testLogger())
+	revoked, err := v.IsRevoked("2ba")
+	if err != nil {
+		t.Fatalf("odd-length serial should normalize: %v", err)
+	}
+	if revoked {
+		t.Fatal("normalized active certificate was treated as revoked")
+	}
+	deviceID, _, ok := v.LookupIdentity("2ba")
+	if !ok || deviceID != "dev-odd" {
+		t.Fatalf("normalized identity lookup failed: device=%q ok=%v", deviceID, ok)
+	}
+}
+
 func TestIsRevoked_ControlPlaneSuspendedOrg(t *testing.T) {
 	mux := http.NewServeMux()
 	mux.HandleFunc("/internal/cert-status/aabbccdd", func(w http.ResponseWriter, r *http.Request) {

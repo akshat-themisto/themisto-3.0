@@ -59,7 +59,7 @@ export default function Telemetry() {
                     <div className="page-kicker">Network Signals</div>
                     <h1 className="topbar-title">Signals</h1>
                     <div className="page-subtitle">
-                        Inspect AI activity flow, guidance outcomes, and high-volume learning destinations.
+                        Inspect endpoint AI activity, policy outcomes, and high-volume destinations.
                     </div>
                 </div>
                 <div className="topbar-actions">
@@ -172,7 +172,9 @@ export default function Telemetry() {
                                             <td>{event.response_status || '-'}</td>
                                             <td style={{ color: 'var(--text-secondary)' }}>{event.latency_ms}ms</td>
                                             <td><span className="badge">{event.policy_decision}</span></td>
-                                            <td style={{ fontSize: 11, fontFamily: 'monospace', color: 'var(--text-muted)' }}>{event.device_id?.substring(0, 8)}</td>
+                                            <td style={{ color: 'var(--text-primary)', fontWeight: 500 }}>
+                                                {event.device_name || event.device_id?.substring(0, 8) || 'Unknown device'}
+                                            </td>
                                         </tr>
                                     ))}
                                 </tbody>

@@ -36,12 +36,12 @@ try {
         }
 
         $lower = $prompt.ToLowerInvariant()
-        if ($lower -match "help me phrase|outline|feedback|study|understand") {
+        if ($lower -match "draft|summarize|rewrite|brainstorm|explain|debug without secrets|public documentation|policy summary") {
             $payload = @{
                 decision = "forward"
                 confidence = 0.91
-                reason = "Gateway Qwen mock classified this as learning support."
-                category = "allowed_tutoring"
+                reason = "Gateway Qwen mock classified this as approved business AI assistance."
+                category = "approved_business_ai"
                 source = "gateway_qwen"
                 ambiguous = $false
             }
@@ -49,8 +49,8 @@ try {
             $payload = @{
                 decision = "block"
                 confidence = 0.9
-                reason = "Gateway Qwen mock classified this as direct assessed-work completion."
-                category = "academic_dishonesty"
+                reason = "Gateway Qwen mock classified this as sensitive corporate data exposure."
+                category = "corporate_data_risk"
                 source = "gateway_qwen"
                 ambiguous = $false
             }

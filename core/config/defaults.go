@@ -69,19 +69,19 @@ func applyDefaults(cfg *domain.AgentConfig) {
 		cfg.PromptSemanticsLocalURL = "http://127.0.0.1:17177/v1/classify"
 	}
 	if cfg.PromptSemanticsLocalTimeout == 0 {
-		cfg.PromptSemanticsLocalTimeout = 250 * time.Millisecond
+		cfg.PromptSemanticsLocalTimeout = 1500 * time.Millisecond
 	}
 	if cfg.PromptSemanticsGatewayTimeout == 0 {
 		cfg.PromptSemanticsGatewayTimeout = 900 * time.Millisecond
 	}
 	if cfg.PromptSemanticsBlockThreshold == 0 {
-		cfg.PromptSemanticsBlockThreshold = 0.86
+		cfg.PromptSemanticsBlockThreshold = 0.68
 	}
 	if cfg.PromptSemanticsAlertThreshold == 0 {
-		cfg.PromptSemanticsAlertThreshold = 0.68
+		cfg.PromptSemanticsAlertThreshold = 0.55
 	}
 	if cfg.PromptSemanticsAmbiguousThreshold == 0 {
-		cfg.PromptSemanticsAmbiguousThreshold = 0.58
+		cfg.PromptSemanticsAmbiguousThreshold = 0.55
 	}
 }
 

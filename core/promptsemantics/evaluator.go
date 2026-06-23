@@ -56,7 +56,7 @@ func NewCascadeEvaluator(opts CascadeOptions) *CascadeEvaluator {
 	}
 	ambiguousThreshold := opts.AmbiguousThreshold
 	if ambiguousThreshold == 0 {
-		ambiguousThreshold = 0.58
+		ambiguousThreshold = 0.55
 	}
 	return &CascadeEvaluator{
 		localURL:           strings.TrimSpace(opts.LocalURL),
