@@ -6,14 +6,17 @@ import {
     ChevronRight,
     CheckCircle2,
     Cpu,
+    HardDrive,
     MonitorCog,
     Radio,
     RefreshCw,
     Search,
     ShieldAlert,
     ShieldCheck,
+    TerminalSquare,
     Wifi,
     WifiOff,
+    X,
 } from 'lucide-react';
 import { operatorApi } from '../api/operatorClient';
 
@@ -78,12 +81,134 @@ function SurfaceStateChips({ states = {} }) {
 
 function signalLabel(type) {
     return ({
+        'agent.heartbeat': 'Agent heartbeat received',
         'proxy.tamper_detected': 'Proxy settings changed outside Themisto',
         'proxy.listener_unreachable': 'Agent proxy listener became unreachable',
         'proxy.remediated': 'Agent restored managed proxy settings',
         'agent.integrity_error': 'Agent could not verify integrity',
         'agent.stopped': 'Agent reported a clean shutdown',
     })[type] || type;
+}
+
+function deviceDisplayName(device) {
+    if (!device) return 'No device selected';
+    return device.device_name || device.hostname || device.device_id || 'Unknown device';
+}
+
+function formatDuration(seconds) {
+    const value = Number(seconds || 0);
+    if (!value) return '-';
+    if (value < 60) return `${value}s`;
+    if (value < 3600) return `${Math.floor(value / 60)}m`;
+    if (value < 86400) return `${Math.floor(value / 3600)}h`;
+    return `${Math.floor(value / 86400)}d`;
+}
+
+function formatSignalDetail(signal) {
+    const data = signal?.data || {};
+    const parts = [
+        data.proxy_integrity ? `proxy ${data.proxy_integrity}` : '',
+        data.proxy_listener_alive === false ? 'proxy listener down' : '',
+        data.gateway_connected === false ? 'gateway disconnected' : '',
+        data.prompt_capture ? `capture ${data.prompt_capture}` : '',
+        data.semantic_classifier ? `classifier ${data.semantic_classifier}` : '',
+        data.service_status ? `service ${data.service_status}` : '',
+        data.protection_state ? `protection ${String(data.protection_state).replace('_', ' ')}` : '',
+    ].filter(Boolean);
+    return parts.join(' / ') || signal?.severity || 'component signal';
+}
+
+function DeviceInspector({ device, signals, onClose }) {
+    if (!device) {
+        return (
+            <aside className="fleet-inspector fleet-inspector-empty">
+                <HardDrive size={24} />
+                <strong>Select a device</strong>
+                <span>Click an endpoint row to inspect Themisto agent health, protection state, and component history.</span>
+            </aside>
+        );
+    }
+
+    const syntheticEvents = [
+        device.last_heartbeat_at && { key: 'heartbeat', timestamp: device.last_heartbeat_at, title: 'Last heartbeat', detail: device.health_reason },
+        device.last_healthy_at && { key: 'healthy', timestamp: device.last_healthy_at, title: 'Last healthy component check', detail: 'Proxy, policy, and local services reported healthy.' },
+        device.last_tamper_at && { key: 'tamper', timestamp: device.last_tamper_at, title: 'Last integrity concern', detail: 'A Themisto-controlled setting or component reported a critical state.' },
+        device.last_stopped_at && { key: 'stopped', timestamp: device.last_stopped_at, title: 'Last clean shutdown', detail: 'The agent reported a controlled stop.' },
+    ].filter(Boolean);
+
+    const history = [
+        ...(signals || []).map((signal) => ({
+            key: `signal-${signal.id}`,
+            timestamp: signal.timestamp,
+            title: signalLabel(signal.event_type),
+            detail: formatSignalDetail(signal),
+            severity: signal.severity,
+        })),
+        ...syntheticEvents,
+    ].sort((a, b) => new Date(b.timestamp).getTime() - new Date(a.timestamp).getTime()).slice(0, 24);
+
+    return (
+        <aside className="fleet-inspector">
+            <div className="fleet-inspector-head">
+                <div>
+                    <span>Device Detail</span>
+                    <h2>{deviceDisplayName(device)}</h2>
+                    <p>{[device.hostname, device.agent_user, device.os].filter(Boolean).join(' / ') || device.device_id}</p>
+                </div>
+                <button className="btn btn-sm fleet-inspector-close" onClick={onClose} title="Close device detail">
+                    <X size={14} />
+                </button>
+            </div>
+
+            <div className="fleet-inspector-status">
+                <StatusBadge value={device.connectivity} />
+                <strong>{device.health_reason}</strong>
+            </div>
+
+            <div className="fleet-detail-grid">
+                <div><span>Agent</span><strong>{device.agent_version || '-'}</strong></div>
+                <div><span>Uptime</span><strong>{formatDuration(device.uptime_seconds)}</strong></div>
+                <div><span>Policy</span><strong>{device.policy_version || 'none'}</strong></div>
+                <div><span>Certificate</span><strong>{device.certificate_status || 'none'}</strong></div>
+            </div>
+
+            <section className="fleet-inspector-section">
+                <h3>Component State</h3>
+                <div className="fleet-components fleet-components-inspector">
+                    <ComponentState label="Gateway" value={device.gateway_connected} />
+                    <ComponentState label="Proxy" value={device.proxy_listener_alive} />
+                    <ComponentState label="Capture" value={device.prompt_capture} />
+                    <ComponentState label="Classifier" value={device.semantic_classifier} healthyValues={['healthy', 'disabled']} />
+                    <ComponentState label="Protection" value={device.protection_state || 'unknown'} healthyValues={['protected']} />
+                    <ComponentState label="Service" value={device.service_status} healthyValues={['running']} />
+                    <ComponentState label="Integrity" value={device.proxy_integrity} />
+                    <SurfaceStateChips states={device.surface_states} />
+                </div>
+            </section>
+
+            <section className="fleet-inspector-section">
+                <h3>Themisto History</h3>
+                <div className="fleet-device-timeline">
+                    {history.map((event) => (
+                        <article className={`fleet-device-event ${event.severity || 'info'}`} key={event.key}>
+                            <TerminalSquare size={14} />
+                            <div>
+                                <strong>{event.title}</strong>
+                                <span>{event.detail}</span>
+                            </div>
+                            <time title={formatDate(event.timestamp)}>{relativeTime(event.timestamp)}</time>
+                        </article>
+                    ))}
+                    {!history.length && (
+                        <div className="empty-state fleet-device-empty">
+                            <ShieldCheck size={22} />
+                            <div>No device-specific history has been recorded yet.</div>
+                        </div>
+                    )}
+                </div>
+            </section>
+        </aside>
+    );
 }
 
 export default function FleetMonitoring() {
@@ -94,6 +219,7 @@ export default function FleetMonitoring() {
     const [status, setStatus] = useState('');
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(25);
+    const [selectedDeviceID, setSelectedDeviceID] = useState('');
     const [autoRefresh, setAutoRefresh] = useState(true);
 
     const loadFleet = useCallback(async (quiet = false) => {
@@ -106,6 +232,7 @@ export default function FleetMonitoring() {
                 limit: pageSize,
                 status,
                 q: query.trim(),
+                selected_device_id: selectedDeviceID,
             });
             setData(response || { summary: {}, devices: [], signals: [] });
         } catch (err) {
@@ -113,7 +240,7 @@ export default function FleetMonitoring() {
         } finally {
             if (!quiet) setLoading(false);
         }
-    }, [page, pageSize, query, status]);
+    }, [page, pageSize, query, selectedDeviceID, status]);
 
     useEffect(() => {
         loadFleet();
@@ -131,6 +258,7 @@ export default function FleetMonitoring() {
     const totalPages = Math.max(1, Math.ceil(total / pageSize));
     const firstVisibleDevice = total === 0 ? 0 : ((page - 1) * pageSize) + 1;
     const lastVisibleDevice = Math.min(page * pageSize, total);
+    const selectedDevice = devices.find((device) => device.device_id === selectedDeviceID) || null;
 
     return (
         <>
@@ -188,38 +316,49 @@ export default function FleetMonitoring() {
 
                 <section className="fleet-workspace">
                     <div className="fleet-section-head">
-                        <div><h2>Device Health</h2><span>{firstVisibleDevice}-{lastVisibleDevice} of {total} devices shown · generated {formatDate(data.generated_at)}</span></div>
+                        <div><h2>Device Health</h2><span>{firstVisibleDevice}-{lastVisibleDevice} of {total} devices shown / generated {formatDate(data.generated_at)}</span></div>
                         <div className="fleet-search"><Search size={15} /><input value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} placeholder="Search device, hostname, user, OS, version" /></div>
                     </div>
-                    <div className="data-table-wrap fleet-table-wrap">
-                        <table className="data-table fleet-table">
-                            <thead><tr><th>Device</th><th>State</th><th>Last Signal</th><th>Components</th><th>Version</th><th>Certificate</th></tr></thead>
-                            <tbody>
-                                {devices.map((device) => (
-                                    <tr key={device.device_id}>
-                                        <td>
-                                            <strong>{device.device_name || device.hostname || device.device_id}</strong>
-                                            <span>{[device.hostname, device.agent_user, device.os].filter(Boolean).join(' / ') || device.device_id}</span>
-                                        </td>
-                                        <td><StatusBadge value={device.connectivity} /><small>{device.health_reason}</small></td>
-                                        <td><strong>{relativeTime(device.last_seen_at)}</strong><span>{formatDate(device.last_seen_at)}</span></td>
-                                        <td><div className="fleet-components">
-                                            <ComponentState label="Gateway" value={device.gateway_connected} />
-                                            <ComponentState label="Proxy" value={device.proxy_listener_alive} />
-                                            <ComponentState label="Capture" value={device.prompt_capture} />
-                                            <ComponentState label="Classifier" value={device.semantic_classifier} healthyValues={['healthy', 'disabled']} />
-                                            <ComponentState label="Protection" value={device.protection_state || 'unknown'} healthyValues={['protected']} />
-											<ComponentState label="Service" value={device.service_status} healthyValues={['running']} />
-                                            <ComponentState label="Integrity" value={device.proxy_integrity} />
-                                            <SurfaceStateChips states={device.surface_states} />
-                                        </div></td>
-                                        <td><strong>{device.agent_version || '-'}</strong><span>{device.policy_version || 'No policy version'}</span></td>
-                                        <td><strong>{device.certificate_status || 'none'}</strong><span>{formatDate(device.certificate_expires_at)}</span></td>
-                                    </tr>
-                                ))}
-                                {!devices.length && <tr><td colSpan="6"><div className="empty-state"><Cpu size={24} /><div>No devices match this view.</div></div></td></tr>}
-                            </tbody>
-                        </table>
+                    <div className="fleet-device-workbench">
+                        <div className="data-table-wrap fleet-table-wrap">
+                            <table className="data-table fleet-table">
+                                <thead><tr><th>Device</th><th>State</th><th>Last Signal</th><th>Components</th><th>Version</th><th>Certificate</th></tr></thead>
+                                <tbody>
+                                    {devices.map((device) => (
+                                        <tr
+                                            className={device.device_id === selectedDeviceID ? 'fleet-device-row selected' : 'fleet-device-row'}
+                                            key={device.device_id}
+                                            onClick={() => setSelectedDeviceID(device.device_id)}
+                                        >
+                                            <td>
+                                                <strong>{deviceDisplayName(device)}</strong>
+                                                <span>{[device.hostname, device.agent_user, device.os].filter(Boolean).join(' / ') || device.device_id}</span>
+                                            </td>
+                                            <td><StatusBadge value={device.connectivity} /><small>{device.health_reason}</small></td>
+                                            <td><strong>{relativeTime(device.last_seen_at)}</strong><span>{formatDate(device.last_seen_at)}</span></td>
+                                            <td><div className="fleet-components">
+                                                <ComponentState label="Gateway" value={device.gateway_connected} />
+                                                <ComponentState label="Proxy" value={device.proxy_listener_alive} />
+                                                <ComponentState label="Capture" value={device.prompt_capture} />
+                                                <ComponentState label="Classifier" value={device.semantic_classifier} healthyValues={['healthy', 'disabled']} />
+                                                <ComponentState label="Protection" value={device.protection_state || 'unknown'} healthyValues={['protected']} />
+                                                <ComponentState label="Service" value={device.service_status} healthyValues={['running']} />
+                                                <ComponentState label="Integrity" value={device.proxy_integrity} />
+                                                <SurfaceStateChips states={device.surface_states} />
+                                            </div></td>
+                                            <td><strong>{device.agent_version || '-'}</strong><span>{device.policy_version || 'No policy version'}</span></td>
+                                            <td><strong>{device.certificate_status || 'none'}</strong><span>{formatDate(device.certificate_expires_at)}</span></td>
+                                        </tr>
+                                    ))}
+                                    {!devices.length && <tr><td colSpan="6"><div className="empty-state"><Cpu size={24} /><div>No devices match this view.</div></div></td></tr>}
+                                </tbody>
+                            </table>
+                        </div>
+                        <DeviceInspector
+                            device={selectedDevice}
+                            signals={data.selected_device_signals || []}
+                            onClose={() => setSelectedDeviceID('')}
+                        />
                     </div>
                     <div className="data-table-footer fleet-pagination-footer">
                         <div><strong>{firstVisibleDevice}-{lastVisibleDevice}</strong> of {total} devices</div>

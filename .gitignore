@@ -15,6 +15,7 @@ backups/
 agent.json
 agent.yml
 themisto-agent
+!cmd/installer/assets/agent.json
 
 # Go
 vendor/

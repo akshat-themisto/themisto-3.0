@@ -124,6 +124,19 @@ jobs:
             go.sum
             desktop/go.sum
 
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: desktop/frontend/package-lock.json
+
+      - name: Build desktop frontend assets
+        working-directory: desktop/frontend
+        run: |
+          npm ci
+          npm run build
+
       - name: Test desktop module
         working-directory: desktop
         run: go test ./...

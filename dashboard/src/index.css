@@ -4080,6 +4080,196 @@ body {
   overflow-x: auto;
 }
 
+.fleet-device-workbench {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(340px, 0.38fr);
+  gap: 14px;
+  align-items: stretch;
+}
+
+.fleet-device-row {
+  cursor: pointer;
+}
+
+.fleet-device-row.selected td {
+  background: #181818 !important;
+}
+
+.fleet-inspector {
+  min-height: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #0a0a0a;
+  padding: 14px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+
+.fleet-inspector-empty {
+  align-items: flex-start;
+  justify-content: center;
+  color: var(--text-muted);
+}
+
+.fleet-inspector-empty strong {
+  color: var(--text-primary);
+}
+
+.fleet-inspector-empty span {
+  max-width: 280px;
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.fleet-inspector-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 12px;
+}
+
+.fleet-inspector-head span {
+  color: var(--text-muted);
+  font-size: 10px;
+  font-weight: 700;
+  text-transform: uppercase;
+}
+
+.fleet-inspector-head h2 {
+  margin: 5px 0 4px;
+  color: var(--text-primary);
+  font-size: 18px;
+  line-height: 1.15;
+}
+
+.fleet-inspector-head p {
+  color: var(--text-muted);
+  font-size: 12px;
+  line-height: 1.4;
+}
+
+.fleet-inspector-close {
+  width: 32px;
+  height: 32px;
+  padding: 0;
+  flex-shrink: 0;
+}
+
+.fleet-inspector-status {
+  display: grid;
+  gap: 8px;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #050505;
+}
+
+.fleet-inspector-status strong {
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+.fleet-detail-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 8px;
+}
+
+.fleet-detail-grid div {
+  min-width: 0;
+  padding: 9px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #050505;
+}
+
+.fleet-detail-grid span,
+.fleet-detail-grid strong {
+  display: block;
+}
+
+.fleet-detail-grid span {
+  color: var(--text-muted);
+  font-size: 10px;
+  text-transform: uppercase;
+}
+
+.fleet-detail-grid strong {
+  margin-top: 4px;
+  color: var(--text-primary);
+  font-size: 12px;
+  overflow-wrap: anywhere;
+}
+
+.fleet-inspector-section {
+  display: grid;
+  gap: 10px;
+}
+
+.fleet-inspector-section h3 {
+  margin: 0;
+  color: var(--text-primary);
+  font-size: 13px;
+}
+
+.fleet-components-inspector {
+  max-width: none;
+}
+
+.fleet-device-timeline {
+  display: grid;
+  gap: 8px;
+  max-height: 430px;
+  overflow-y: auto;
+  padding-right: 3px;
+}
+
+.fleet-device-event {
+  display: grid;
+  grid-template-columns: 18px minmax(0, 1fr) auto;
+  gap: 9px;
+  align-items: flex-start;
+  padding: 10px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #050505;
+}
+
+.fleet-device-event svg {
+  margin-top: 1px;
+  color: var(--text-muted);
+}
+
+.fleet-device-event strong,
+.fleet-device-event span,
+.fleet-device-event time {
+  display: block;
+}
+
+.fleet-device-event strong {
+  color: var(--text-primary);
+  font-size: 12px;
+}
+
+.fleet-device-event span {
+  margin-top: 3px;
+  color: var(--text-muted);
+  font-size: 11px;
+  line-height: 1.4;
+}
+
+.fleet-device-event time {
+  color: var(--text-muted);
+  font-size: 10px;
+  white-space: nowrap;
+}
+
+.fleet-device-empty {
+  min-height: 140px;
+}
+
 .fleet-pagination-footer {
   margin-top: 12px;
   justify-content: space-between;

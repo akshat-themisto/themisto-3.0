@@ -35,6 +35,7 @@ func (s *Server) handleOperatorFleet(w http.ResponseWriter, r *http.Request) {
 			signalLimit = parsed
 		}
 	}
+	selectedDeviceID := strings.TrimSpace(r.URL.Query().Get("selected_device_id"))
 	filter := store.FleetFilter{
 		OrgID:  s.operatorOrgID,
 		Page:   page,
@@ -55,15 +56,26 @@ func (s *Server) handleOperatorFleet(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusInternalServerError, "INTERNAL", "internal error")
 		return
 	}
+	deviceSignals := []store.FleetSignal{}
+	if selectedDeviceID != "" {
+		deviceSignals, err = s.store.ListFleetDeviceSignals(r.Context(), s.operatorOrgID, selectedDeviceID, 200)
+		if err != nil {
+			s.logger.Error("operator list fleet device signals", "error", err)
+			writeError(w, http.StatusInternalServerError, "INTERNAL", "internal error")
+			return
+		}
+	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"generated_at": time.Now().UTC(),
-		"summary":      summary,
-		"devices":      devices,
-		"signals":      signals,
-		"page":         page,
-		"limit":        limit,
-		"total":        total,
+		"generated_at":            time.Now().UTC(),
+		"summary":                 summary,
+		"devices":                 devices,
+		"signals":                 signals,
+		"selected_device_id":      selectedDeviceID,
+		"selected_device_signals": deviceSignals,
+		"page":                    page,
+		"limit":                   limit,
+		"total":                   total,
 		"thresholds": map[string]int{
 			"connected_seconds": 90,
 			"offline_seconds":   300,

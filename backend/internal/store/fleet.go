@@ -243,14 +243,18 @@ func (s *Store) listFleet(ctx context.Context, filter FleetFilter, now time.Time
 }
 
 func (s *Store) ListOperatorFleetSignals(ctx context.Context, limit int) ([]FleetSignal, error) {
-	return s.listFleetSignals(ctx, "", limit)
+	return s.listFleetSignals(ctx, "", "", limit)
 }
 
 func (s *Store) ListFleetSignals(ctx context.Context, orgID string, limit int) ([]FleetSignal, error) {
-	return s.listFleetSignals(ctx, orgID, limit)
+	return s.listFleetSignals(ctx, orgID, "", limit)
 }
 
-func (s *Store) listFleetSignals(ctx context.Context, orgID string, limit int) ([]FleetSignal, error) {
+func (s *Store) ListFleetDeviceSignals(ctx context.Context, orgID, deviceID string, limit int) ([]FleetSignal, error) {
+	return s.listFleetSignals(ctx, orgID, deviceID, limit)
+}
+
+func (s *Store) listFleetSignals(ctx context.Context, orgID, deviceID string, limit int) ([]FleetSignal, error) {
 	if limit <= 0 || limit > 500 {
 		limit = 100
 	}
@@ -261,10 +265,11 @@ func (s *Store) listFleetSignals(ctx context.Context, orgID string, limit int) (
 		LEFT JOIN devices d ON d.id::text = e.device_id
 		LEFT JOIN organizations o ON o.id::text = e.org_id
 		WHERE ($1 = '' OR e.org_id = $1)
+		  AND ($2 = '' OR e.device_id = $2)
 		  AND (e.severity != 'info'
 		   OR e.event_type IN ('agent.stopped', 'proxy.remediated'))
 		ORDER BY e.timestamp DESC
-		LIMIT $2`, orgID, limit)
+		LIMIT $3`, orgID, strings.TrimSpace(deviceID), limit)
 	if err != nil {
 		return nil, err
 	}

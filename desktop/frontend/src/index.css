@@ -3,24 +3,24 @@
 @tailwind utilities;
 
 :root {
-  --app-bg: #f4efe6;
-  --content-bg: #f8f4ed;
-  --sidebar-bg: #fffaf1;
-  --surface: #ffffff;
-  --surface-soft: #f3ecdf;
-  --surface-strong: #fff7e8;
-  --topbar: #06213d;
-  --topbar-border: rgba(214, 174, 99, 0.38);
-  --border: #ded3c0;
-  --border-soft: #e8ddcb;
-  --text-primary: #071f3a;
-  --text-secondary: #536173;
-  --text-muted: #7f8791;
-  --accent: #a9782d;
-  --accent-strong: #d4a75d;
-  --success: #13866f;
-  --warning: #b57b1e;
-  --danger: #bd3455;
+  --app-bg: #000;
+  --content-bg: #000;
+  --sidebar-bg: #050505;
+  --surface: #0a0a0a;
+  --surface-soft: #111;
+  --surface-strong: #151515;
+  --topbar: #000;
+  --topbar-border: #1f1f1f;
+  --border: #262626;
+  --border-soft: #1f1f1f;
+  --text-primary: #f5f5f5;
+  --text-secondary: #d4d4d8;
+  --text-muted: #a1a1aa;
+  --accent: #fff;
+  --accent-strong: #fff;
+  --success: #f5f5f5;
+  --warning: #d4d4d8;
+  --danger: #fff;
 }
 
 * {
@@ -1850,4 +1850,294 @@ select {
   .desktop-onboarding-rotation {
     animation: none;
   }
+}
+
+/* Monochrome enterprise skin */
+body {
+  background: #000;
+  color: var(--text-primary);
+}
+
+*,
+*::before,
+*::after {
+  letter-spacing: 0 !important;
+}
+
+.app-shell,
+.content-shell,
+.workspace-page,
+.topbar,
+.sidebar,
+.statusbar,
+.desktop-onboarding-overlay {
+  background: #000 !important;
+  background-image: none !important;
+  box-shadow: none !important;
+}
+
+.topbar,
+.sidebar,
+.statusbar {
+  border-color: #1f1f1f !important;
+}
+
+.brand-logo {
+  filter: none;
+}
+
+.brand-name,
+.page-title,
+.metric-value,
+.card-title,
+.ref-card-title,
+.admin-list-title,
+.definition-title,
+.empty-state h2 {
+  color: #fff !important;
+}
+
+.brand-subtitle,
+.page-subtitle,
+.metric-meta,
+.card-row-label,
+.preference-hint,
+.support-copy,
+.ref-card-note,
+.admin-note-meta,
+.admin-list-meta,
+.definition-action,
+.statusbar,
+.browser-icon,
+.empty-state,
+.form-label {
+  color: #a1a1aa !important;
+}
+
+.brand-pill,
+.topbar-session-btn,
+.topbar-search,
+.topbar-search kbd,
+.topbar-user,
+.ops-pill,
+.badge,
+.status-pill,
+.toggle-pill,
+.desktop-onboarding-step {
+  background: #111 !important;
+  border-color: #303030 !important;
+  color: #e5e5e5 !important;
+  box-shadow: none !important;
+}
+
+.topbar-search input,
+.topbar-search input::placeholder {
+  color: #d4d4d8 !important;
+}
+
+.topbar-btn,
+.topbar-user {
+  color: #f5f5f5 !important;
+}
+
+.topbar-btn:hover,
+.topbar-user:hover,
+.topbar-session-btn:hover {
+  background: #151515 !important;
+  border-color: #3f3f46 !important;
+}
+
+.nav-item {
+  color: #a1a1aa !important;
+  border-radius: 8px;
+}
+
+.nav-item:hover {
+  background: #111 !important;
+  color: #f5f5f5 !important;
+}
+
+.nav-item.active {
+  background: #f5f5f5 !important;
+  color: #000 !important;
+  box-shadow: none !important;
+}
+
+.nav-item.active svg {
+  color: #000 !important;
+}
+
+.card,
+.metric-card,
+.admin-card,
+.definition-card,
+.ref-card,
+.shortcut-card,
+.empty-state,
+.issue-row,
+.diagnostics-card,
+.support-card,
+.desktop-tour-card,
+.desktop-welcome-shell,
+.desktop-onboarding-feature-card {
+  background: #0a0a0a !important;
+  background-image: none !important;
+  border-color: #262626 !important;
+  box-shadow: none !important;
+}
+
+.card:hover,
+.metric-card:hover,
+.shortcut-card:hover,
+.ref-card:hover {
+  background: #111 !important;
+  border-color: #3f3f46 !important;
+  transform: none;
+  box-shadow: none !important;
+}
+
+.card-row,
+.statusbar-divider,
+.table th,
+.table td,
+table th,
+table td {
+  border-color: #262626 !important;
+}
+
+.card-row-value,
+code,
+.status-line span {
+  color: #f5f5f5 !important;
+}
+
+.table,
+table {
+  background: #0a0a0a !important;
+}
+
+.table th,
+table th {
+  background: #111 !important;
+  color: #f5f5f5 !important;
+  white-space: nowrap;
+}
+
+.table td,
+table td {
+  background: #0a0a0a !important;
+  color: #f5f5f5 !important;
+}
+
+.table tr:nth-child(even) td,
+table tr:nth-child(even) td {
+  background: #0d0d0d !important;
+}
+
+.table tr:hover td,
+table tr:hover td {
+  background: #151515 !important;
+}
+
+.btn,
+.input,
+.textarea,
+select,
+textarea,
+input {
+  background: #050505 !important;
+  border-color: #303030 !important;
+  color: #f5f5f5 !important;
+  box-shadow: none !important;
+}
+
+.btn:hover {
+  background: #151515 !important;
+  border-color: #525252 !important;
+}
+
+.btn-primary,
+.toggle-pill-on {
+  background: #f5f5f5 !important;
+  border-color: #f5f5f5 !important;
+  color: #000 !important;
+}
+
+.btn-primary svg,
+.toggle-pill-on svg {
+  color: #000 !important;
+}
+
+.input:focus,
+.textarea:focus,
+select:focus,
+textarea:focus,
+input:focus {
+  border-color: #f5f5f5 !important;
+  box-shadow: 0 0 0 3px rgba(255, 255, 255, 0.12) !important;
+}
+
+.ops-pill.success,
+.ops-pill.warning,
+.ops-pill.info,
+.ops-pill.danger,
+.ops-pill.neutral,
+.badge-success,
+.badge-warning,
+.badge-danger,
+.badge-neutral,
+.text-success,
+.text-danger,
+.text-info,
+.btn-success,
+.btn-danger,
+.issue-error .issue-header,
+.issue-warning .issue-header,
+.issue-info .issue-header,
+.status-dot.green,
+.status-dot.yellow,
+.status-dot.red,
+.status-dot.gray {
+  color: #f5f5f5 !important;
+}
+
+.status-dot.green,
+.status-dot.yellow,
+.status-dot.red,
+.status-dot.gray {
+  background: #f5f5f5 !important;
+}
+
+.issue-row.issue-error,
+.issue-row.issue-warning,
+.issue-row.issue-info,
+.fleet-warning,
+.desktop-onboarding-focus {
+  border-color: #303030 !important;
+  border-left-color: #f5f5f5 !important;
+  background: #0a0a0a !important;
+  box-shadow: none !important;
+}
+
+.shortcut-card-icon,
+.desktop-onboarding-icon,
+.login-hero-logo-shell {
+  background: #f5f5f5 !important;
+  color: #000 !important;
+  border-color: #f5f5f5 !important;
+}
+
+.desktop-welcome-visual,
+.desktop-onboarding-stage {
+  background: #050505 !important;
+  background-image: none !important;
+}
+
+.desktop-onboarding-orbit-outer,
+.desktop-onboarding-orbit-inner {
+  border-color: #303030 !important;
+}
+
+.desktop-tour-progress-fill {
+  background: #f5f5f5 !important;
 }

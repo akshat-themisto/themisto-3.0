@@ -215,10 +215,10 @@ export default function Enrollment() {
   }
 
   const bannerStyle = sourceStatus?.tone === 'danger'
-    ? { borderColor: 'rgba(255, 113, 143, 0.32)', background: 'rgba(255, 113, 143, 0.08)', color: 'var(--danger)' }
+    ? { borderColor: 'var(--border)', background: 'var(--surface-soft)', color: 'var(--text-primary)' }
     : sourceStatus?.tone === 'success'
-      ? { borderColor: 'rgba(21, 210, 160, 0.32)', background: 'rgba(21, 210, 160, 0.08)', color: 'var(--success)' }
-      : { borderColor: 'rgba(45, 125, 246, 0.28)', background: 'rgba(45, 125, 246, 0.08)', color: 'var(--accent)' };
+      ? { borderColor: 'var(--border)', background: 'var(--surface-soft)', color: 'var(--text-primary)' }
+      : { borderColor: 'var(--border)', background: 'var(--surface-soft)', color: 'var(--text-primary)' };
 
   return (
     <div className="workspace-page">
