@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { Bot, Globe2, Monitor, Shield, Plus, X } from 'lucide-react';
+import { Bot, Globe2, Monitor, Play, Shield, ShieldCheck, Plus, X } from 'lucide-react';
 import AppSelect from '../components/AppSelect';
 
 const FIELD_OPTIONS = [
@@ -229,8 +229,15 @@ export default function Policies() {
     const [form, setForm] = useState(emptyForm());
     const [simpleForm, setSimpleForm] = useState(emptySimpleForm());
     const [saving, setSaving] = useState(false);
+    const [testPrompt, setTestPrompt] = useState('');
+    const [testResult, setTestResult] = useState(null);
+    const [testLoading, setTestLoading] = useState(false);
+    const [testError, setTestError] = useState('');
+    const [enforcementOverride, setEnforcementOverride] = useState('');
+    const [savingEnforcement, setSavingEnforcement] = useState(false);
 
     const enabledCount = useMemo(() => rules.filter((r) => r.enabled).length, [rules]);
+    const baselineRules = useMemo(() => rules.filter((r) => (r.name || '').startsWith('Managed: AI ')), [rules]);
 
     useEffect(() => {
         loadPolicies();
@@ -239,9 +246,25 @@ export default function Policies() {
     const loadPolicies = () => {
         setLoading(true);
         api.listPolicies()
-            .then((d) => setRules(d.rules || []))
+            .then((d) => {
+                setRules(d.rules || []);
+                setEnforcementOverride(d.prompt_enforcement_override || '');
+            })
             .catch(() => setRules([]))
             .finally(() => setLoading(false));
+    };
+
+    const saveEnforcementOverride = async () => {
+        setSavingEnforcement(true);
+        try {
+            const result = await api.updatePolicyEnforcement(enforcementOverride);
+            setEnforcementOverride(result?.prompt_enforcement_override || '');
+            toast.success('Prompt enforcement override updated.');
+        } catch (err) {
+            toast.error(err.message || 'Failed to update prompt enforcement override');
+        } finally {
+            setSavingEnforcement(false);
+        }
     };
 
     const openCreate = () => {
@@ -349,6 +372,31 @@ export default function Policies() {
         }
     };
 
+    const runPromptTest = async () => {
+        const prompt = testPrompt.trim();
+        if (!prompt) {
+            toast.warning('Enter a prompt to test');
+            return;
+        }
+        setTestLoading(true);
+        setTestError('');
+        setTestResult(null);
+        try {
+            const result = await api.promptPolicyTest({
+                prompt_text: prompt,
+                surface: 'browser_chromium',
+                destination_url: 'https://chatgpt.com/',
+                vendor: 'openai',
+                service_category: 'ai_llm',
+            });
+            setTestResult(result?.result || result);
+        } catch (err) {
+            setTestError(err?.message || 'Real prompt evaluator is unavailable');
+        } finally {
+            setTestLoading(false);
+        }
+    };
+
     return (
         <>
             <div className="topbar">
@@ -374,6 +422,93 @@ export default function Policies() {
             </div>
 
             <div className="page-content">
+                <div className="policy-ops-grid">
+                    <section className="chart-card policy-card">
+                        <div className="policy-card-head">
+                            <div>
+                                <h2>Baseline DLP</h2>
+                                <span>Managed AI DLP rules that protect credentials, personal data, source code, and custom matches.</span>
+                            </div>
+                            <ShieldCheck size={18} />
+                        </div>
+                        <div className="baseline-dlp-grid">
+                            {['Credentials', 'PII', 'Source Code', 'DLP Match'].map((label) => {
+                                const rule = baselineRules.find((r) => (r.name || '').toLowerCase().includes(label.toLowerCase().replace('dlp match', 'dlp match')));
+                                return (
+                                    <div className="baseline-dlp-item" key={label}>
+                                        <span>{label}</span>
+                                        <strong>{rule?.action || 'not configured'}</strong>
+                                        <small>{rule?.enabled ? 'Enabled' : 'Not enabled'}</small>
+                                    </div>
+                                );
+                            })}
+                        </div>
+                    </section>
+
+                    <section className="chart-card policy-card">
+                        <div className="policy-card-head">
+                            <div>
+                                <h2>Semantic Controls</h2>
+                                <span>Semantic classification adds context; deterministic DLP still owns exact sensitive matches.</span>
+                            </div>
+                            <Bot size={18} />
+                        </div>
+                        <div className="semantic-control-list">
+                            <label><input type="checkbox" checked readOnly /> Local classifier enabled when agent config enables prompt semantics</label>
+                            <label><input type="checkbox" checked readOnly /> Gateway fallback used for ambiguous or low-confidence prompts</label>
+                            <label><input type="checkbox" checked readOnly /> Ambiguous prompts alert by default</label>
+                        </div>
+                        <div className="policy-enforcement-control">
+                            <label className="form-label">Emergency enforcement override</label>
+                            <div className="policy-enforcement-row">
+                                <select
+                                    className="form-select"
+                                    value={enforcementOverride}
+                                    disabled={!isAdmin || savingEnforcement}
+                                    onChange={(event) => setEnforcementOverride(event.target.value)}
+                                >
+                                    <option value="">Normal policy</option>
+                                    <option value="monitor">Monitor only</option>
+                                    <option value="alert">Alert only</option>
+                                    <option value="enforce">Enforce</option>
+                                </select>
+                                <button className="btn btn-sm" disabled={!isAdmin || savingEnforcement} onClick={saveEnforcementOverride}>
+                                    {savingEnforcement ? 'Saving...' : 'Apply'}
+                                </button>
+                            </div>
+                            <span className="policy-helper-text">Use monitor only to recover a fleet if prompt protection is blocking because the local evaluator is down.</span>
+                        </div>
+                    </section>
+                </div>
+
+                <section className="chart-card policy-test-card">
+                    <div className="policy-card-head">
+                        <div>
+                            <h2>Prompt Test</h2>
+                            <span>Runs against the real local prompt evaluator path. If the agent or classifier is offline, this reports unavailable.</span>
+                        </div>
+                        <button className="btn btn-primary" onClick={runPromptTest} disabled={testLoading}>
+                            <Play size={14} /> {testLoading ? 'Testing...' : 'Run Test'}
+                        </button>
+                    </div>
+                    <textarea
+                        className="form-input policy-textarea"
+                        placeholder="Paste a test prompt, for example: summarize this public blog post without sensitive data."
+                        value={testPrompt}
+                        onChange={(e) => setTestPrompt(e.target.value)}
+                    />
+                    {testError && <div className="dlp-inline-error policy-test-error">{testError}</div>}
+                    {testResult && (
+                        <div className="policy-test-result">
+                            <div><span>Final outcome</span><strong>{testResult.decision || testResult.outcome || '-'}</strong></div>
+                            <div><span>Severity</span><strong>{testResult.severity || '-'}</strong></div>
+                            <div><span>Detectors</span><strong>{(testResult.match_types || []).join(', ') || `${testResult.match_count || 0} match(es)`}</strong></div>
+                            <div><span>Semantic context</span><strong>{testResult.semantic ? `${testResult.semantic.source || 'semantic'} / ${Math.round((testResult.semantic.confidence || 0) * 100)}%` : 'No semantic result'}</strong></div>
+                            <div className="policy-test-wide"><span>Reason</span><strong>{testResult.reason || testResult.message || '-'}</strong></div>
+                        </div>
+                    )}
+                </section>
+
                 <div className="data-table-wrap">
                     {loading ? (
                         <div className="loading-wrap"><div className="spinner" /></div>

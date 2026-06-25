@@ -3,18 +3,20 @@
 package main
 
 import (
+	"io/fs"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
 func TestPrepareInstalledConfigCanonicalizesRelativeCredentialPaths(t *testing.T) {
 	cfg := prepareInstalledConfig(nil, map[string]interface{}{
-		"agent_id":   "device-1",
+		"agent_id":    "device-1",
 		"gateway_url": "https://localhost",
-		"cert_path":  "local-device/device.crt",
-		"key_path":   "local-device/device.key",
-		"ca_path":    "local-device/ca-chain.pem",
+		"cert_path":   "local-device/device.crt",
+		"key_path":    "local-device/device.key",
+		"ca_path":     "local-device/ca-chain.pem",
 	})
 
 	if got := getString(cfg, "cert_path"); got != filepath.Join(certsDir, "device.crt") {
@@ -33,12 +35,12 @@ func TestPrepareInstalledConfigAdoptsEmbeddedBootstrapWhenInstalledStateIsIncomp
 		"agent_id": "stale-device",
 	}
 	embedded := map[string]interface{}{
-		"agent_id":          "device-42",
-		"device_id":         "device-42",
-		"gateway_url":       "https://localhost",
-		"backend_url":       "http://localhost:8443",
-		"org_name":          "Themisto Dev Org",
-		"enrollment_token":  "token-123",
+		"agent_id":         "device-42",
+		"device_id":        "device-42",
+		"gateway_url":      "https://localhost",
+		"backend_url":      "http://localhost:8443",
+		"org_name":         "Themisto Dev Org",
+		"enrollment_token": "token-123",
 	}
 
 	cfg := prepareInstalledConfig(installed, embedded)
@@ -85,5 +87,23 @@ func TestPrepareInstalledConfigPreservesInstalledBootstrapWhenCredentialFilesExi
 	}
 	if got := getString(cfg, "gateway_url"); got != "https://existing-gateway" {
 		t.Fatalf("gateway_url = %q, want installed value", got)
+	}
+}
+
+func TestClassifierEmbedExcludesPythonCaches(t *testing.T) {
+	err := fs.WalkDir(classifierFS, "assets/classifier", func(path string, entry fs.DirEntry, walkErr error) error {
+		if walkErr != nil {
+			return walkErr
+		}
+		if entry.IsDir() && entry.Name() == "__pycache__" {
+			t.Fatalf("classifier embed includes Python cache directory %s", path)
+		}
+		if strings.HasSuffix(entry.Name(), ".pyc") {
+			t.Fatalf("classifier embed includes Python bytecode %s", path)
+		}
+		return nil
+	})
+	if err != nil {
+		t.Fatalf("walk classifier embed: %v", err)
 	}
 }

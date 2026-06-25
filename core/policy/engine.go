@@ -16,12 +16,13 @@ import (
 // DefaultEngine implements the Engine interface. It holds a priority-ordered
 // set of rules in memory and evaluates them against incoming RequestContexts.
 type DefaultEngine struct {
-	mu              sync.RWMutex
-	rules           []domain.PolicyRule
-	version         string
-	interception    domain.PolicyInterception
-	defaultDecision domain.Decision
-	compiled        []compiledRule
+	mu                        sync.RWMutex
+	rules                     []domain.PolicyRule
+	version                   string
+	interception              domain.PolicyInterception
+	promptEnforcementOverride string
+	defaultDecision           domain.Decision
+	compiled                  []compiledRule
 }
 
 type compiledRule struct {
@@ -77,6 +78,7 @@ func (e *DefaultEngine) Update(payload *domain.PolicyPayload) error {
 	e.compiled = compiled
 	e.version = payload.Version
 	e.interception = normalizePolicyInterception(payload.Interception)
+	e.promptEnforcementOverride = normalizePromptEnforcementOverride(payload.PromptEnforcementOverride)
 	e.mu.Unlock()
 	return nil
 }
@@ -96,6 +98,14 @@ func (e *DefaultEngine) Interception() domain.PolicyInterception {
 	out.Domains = append([]string(nil), out.Domains...)
 	out.Protocols = append([]string(nil), out.Protocols...)
 	return out
+}
+
+// PromptEnforcementOverride returns the latest remotely synced prompt
+// enforcement override. Empty means the local config mode remains effective.
+func (e *DefaultEngine) PromptEnforcementOverride() string {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return e.promptEnforcementOverride
 }
 
 // ---------------------------------------------------------------------------
@@ -287,6 +297,19 @@ func normalizePolicyInterception(raw domain.PolicyInterception) domain.PolicyInt
 	}
 	sort.Strings(out.Domains)
 	return out
+}
+
+func normalizePromptEnforcementOverride(raw string) string {
+	switch strings.ToLower(strings.TrimSpace(raw)) {
+	case domain.PromptEnforcementModeMonitor:
+		return domain.PromptEnforcementModeMonitor
+	case domain.PromptEnforcementModeAlert:
+		return domain.PromptEnforcementModeAlert
+	case domain.PromptEnforcementModeEnforce:
+		return domain.PromptEnforcementModeEnforce
+	default:
+		return ""
+	}
 }
 
 func normalizeInterceptDomain(raw string) string {

@@ -75,6 +75,20 @@ func TestScan_Credentials_EnvironmentKeyIsNotSSN(t *testing.T) {
 	}
 }
 
+func TestScan_Credentials_ContextShortEnvironmentKey(t *testing.T) {
+	body := []byte(`this is the api key sk-live-123456`)
+	info := Scan(body, nil)
+	if !info.ContainsCredentials {
+		t.Fatalf("expected contextual short key to be detected as credentials: %#v", info)
+	}
+	if info.Severity != "critical" {
+		t.Fatalf("severity=%q want=critical", info.Severity)
+	}
+	if len(info.Matches) != 1 || info.Matches[0].Pattern != "credential_context_token" {
+		t.Fatalf("matches=%#v want credential_context_token", info.Matches)
+	}
+}
+
 func TestScan_Credentials_AWSKey(t *testing.T) {
 	body := []byte(`AKIAIOSFODNN7EXAMPLE`)
 	info := Scan(body, nil)

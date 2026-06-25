@@ -63,15 +63,19 @@ type reissueEnrollmentTokenResponse struct {
 }
 
 type enrollmentAgentConfig struct {
-	AgentID                string `json:"agent_id"`
-	GatewayURL             string `json:"gateway_url"`
-	ListenAddr             string `json:"listen_addr"`
-	DefaultDecision        string `json:"default_decision"`
-	TelemetryFlushInterval string `json:"telemetry_flush_interval"`
-	BackendURL             string `json:"backend_url"`
-	DeviceID               string `json:"device_id"`
-	EnrollmentToken        string `json:"enrollment_token"`
-	OrgName                string `json:"org_name"`
+	AgentID                string   `json:"agent_id"`
+	GatewayURL             string   `json:"gateway_url"`
+	ListenAddr             string   `json:"listen_addr"`
+	DefaultDecision        string   `json:"default_decision"`
+	TelemetryFlushInterval string   `json:"telemetry_flush_interval"`
+	PromptCaptureEnabled   bool     `json:"prompt_capture_enabled"`
+	PromptSemanticsEnabled bool     `json:"prompt_semantics_enabled"`
+	PromptEnforcementMode  string   `json:"prompt_enforcement_mode"`
+	PromptFailClosed       []string `json:"prompt_fail_closed_surfaces"`
+	BackendURL             string   `json:"backend_url"`
+	DeviceID               string   `json:"device_id"`
+	EnrollmentToken        string   `json:"enrollment_token"`
+	OrgName                string   `json:"org_name"`
 }
 
 func (s *Server) handleRegisterDevice(w http.ResponseWriter, r *http.Request) {
@@ -445,10 +449,20 @@ func buildAgentConfig(backendURL, gatewayURL, deviceID, orgName, token string) e
 		ListenAddr:             "127.0.0.1:8080",
 		DefaultDecision:        "bypass",
 		TelemetryFlushInterval: "5s",
-		BackendURL:             backendURL,
-		DeviceID:               deviceID,
-		EnrollmentToken:        token,
-		OrgName:                orgName,
+		PromptCaptureEnabled:   true,
+		PromptSemanticsEnabled: true,
+		PromptEnforcementMode:  "enforce",
+		PromptFailClosed: []string{
+			"browser_chromium",
+			"browser_firefox",
+			"browser_safari",
+			"claude_code",
+			"cursor",
+		},
+		BackendURL:      backendURL,
+		DeviceID:        deviceID,
+		EnrollmentToken: token,
+		OrgName:         orgName,
 	}
 }
 

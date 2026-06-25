@@ -83,6 +83,18 @@ func applyDefaults(cfg *domain.AgentConfig) {
 	if cfg.PromptSemanticsAmbiguousThreshold == 0 {
 		cfg.PromptSemanticsAmbiguousThreshold = 0.55
 	}
+	if cfg.PromptEnforcementMode == "" {
+		cfg.PromptEnforcementMode = domain.PromptEnforcementModeAlert
+	}
+	if len(cfg.PromptFailClosedSurfaces) == 0 {
+		cfg.PromptFailClosedSurfaces = []domain.CaptureSurface{
+			domain.CaptureSurfaceBrowserChromium,
+			domain.CaptureSurfaceBrowserFirefox,
+			domain.CaptureSurfaceBrowserSafari,
+			domain.CaptureSurfaceClaudeCode,
+			domain.CaptureSurfaceCursor,
+		}
+	}
 }
 
 const defaultBlockPage = `<!DOCTYPE html>

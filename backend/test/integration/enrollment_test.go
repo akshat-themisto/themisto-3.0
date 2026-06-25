@@ -21,6 +21,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/lib/pq"
 	"github.com/themisto/backend/internal/api"
 	"github.com/themisto/backend/internal/signing"
 	"github.com/themisto/backend/internal/store"
@@ -59,7 +60,7 @@ func setupTestEnv(t *testing.T) *testEnv {
 	apiKey := "test-api-key-" + fmt.Sprintf("%d", time.Now().UnixNano())
 	logger := slog.New(slog.NewTextHandler(io.Discard, nil))
 
-	handler := api.NewServer(db, signer, apiKey, "", 24*time.Hour, "http://localhost:8443", "https://gateway.test", nil, logger, nil)
+	handler := api.NewServer(db, signer, apiKey, "", "customer_ops", "", 24*time.Hour, "http://localhost:8443", "https://gateway.test", nil, logger, nil)
 	server := httptest.NewServer(handler)
 	t.Cleanup(server.Close)
 
@@ -215,6 +216,29 @@ func readJSON(t *testing.T, resp *http.Response) map[string]interface{} {
 		t.Fatalf("decode JSON: %v", err)
 	}
 	return m
+}
+
+func (e *testEnv) insertDLPEvent(orgID, deviceID, host, severity, actionTaken, reviewStatus, semanticSource string) int64 {
+	e.t.Helper()
+	var id int64
+	err := e.db.DB.QueryRowContext(context.Background(), `
+		INSERT INTO dlp_events (
+			device_id, org_id, request_host, request_path, request_method, source_app,
+			service_category, ai_vendor, match_types, matched_patterns, matched_fields,
+			match_count, severity, action_taken, semantic_source, review_status
+		) VALUES (
+			$1, $2, $3, '/prompt', 'POST', 'browser',
+			'ai_llm', 'openai', $4, $5, $6,
+			1, $7, $8, NULLIF($9, ''), $10
+		) RETURNING id`,
+		deviceID, orgID, host,
+		pq.Array([]string{"credentials"}), pq.Array([]string{"api_key_environment"}), pq.Array([]string{"prompt"}),
+		severity, actionTaken, semanticSource, reviewStatus,
+	).Scan(&id)
+	if err != nil {
+		e.t.Fatalf("insert DLP event: %v", err)
+	}
+	return id
 }
 
 func generateCSRPEM(t *testing.T, cn, org string) []byte {
@@ -466,6 +490,112 @@ func TestMultiTenancyIsolation(t *testing.T) {
 				t.Errorf("cross-org query returned wrong device %v", dm["device_name"])
 			}
 		}
+	}
+}
+
+func TestDLPReviewWorkflowAndFilters(t *testing.T) {
+	env := setupTestEnv(t)
+
+	if err := env.db.EnsureDLPSchema(context.Background()); err != nil {
+		t.Fatalf("ensure DLP schema: %v", err)
+	}
+
+	orgA := env.createOrg("DLP Review A "+env.runID, "dlp-review-a-"+env.runID)
+	orgB := env.createOrg("DLP Review B "+env.runID, "dlp-review-b-"+env.runID)
+	emailA := "review+" + env.runID + "@dlp.test"
+	env.createUser(orgA, emailA, "DLP Reviewer", "initial123", "admin")
+	sessionToken, _ := env.login(emailA, "initial123")
+	sessionToken = env.changePassword(sessionToken, "initial123", "newpassword456")
+
+	eventA := env.insertDLPEvent(orgA, "device-a-"+env.runID, "chatgpt.com", "critical", "block", "unreviewed", "local_deberta_nli")
+	env.insertDLPEvent(orgA, "device-a2-"+env.runID, "copilot.microsoft.com", "medium", "alert", "reviewed", "semantic")
+	eventB := env.insertDLPEvent(orgB, "device-b-"+env.runID, "chatgpt.com", "critical", "block", "unreviewed", "local_deberta_nli")
+
+	listResp := env.authReq(http.MethodGet, "/api/v1/dlp/events?severity=critical&action_taken=block&review_status=unreviewed&semantic_source=deberta&sort=severity&order=desc&page=1&limit=10", nil, sessionToken)
+	listData := readJSON(t, listResp)
+	if got := int(listData["total"].(float64)); got != 1 {
+		t.Fatalf("filtered DLP total = %d, want 1", got)
+	}
+	events := listData["events"].([]interface{})
+	if gotID := int64(events[0].(map[string]interface{})["id"].(float64)); gotID != eventA {
+		t.Fatalf("filtered DLP event id = %d, want %d", gotID, eventA)
+	}
+
+	invalidBody, _ := json.Marshal(map[string]string{"review_status": "closed"})
+	invalidResp := env.authReq(http.MethodPatch, fmt.Sprintf("/api/v1/dlp/events/%d/review", eventA), bytes.NewReader(invalidBody), sessionToken)
+	if invalidResp.StatusCode != http.StatusBadRequest {
+		b, _ := io.ReadAll(invalidResp.Body)
+		tFatalf(t, invalidResp, "expected invalid review status rejection", b)
+	}
+	invalidData := readJSON(t, invalidResp)
+	if invalidData["code"] != "INVALID_REVIEW_STATUS" {
+		t.Fatalf("invalid review code = %v", invalidData["code"])
+	}
+
+	reviewBody, _ := json.Marshal(map[string]string{
+		"review_status": "reviewed",
+		"review_note":   "belongs to another org",
+	})
+	crossOrgResp := env.authReq(http.MethodPatch, fmt.Sprintf("/api/v1/dlp/events/%d/review", eventB), bytes.NewReader(reviewBody), sessionToken)
+	if crossOrgResp.StatusCode != http.StatusNotFound {
+		b, _ := io.ReadAll(crossOrgResp.Body)
+		tFatalf(t, crossOrgResp, "expected cross-org review to be hidden", b)
+	}
+	crossOrgResp.Body.Close()
+
+	escalateBody, _ := json.Marshal(map[string]string{
+		"review_status": "escalated",
+		"review_note":   "confirmed key exposure",
+	})
+	escalateResp := env.authReq(http.MethodPatch, fmt.Sprintf("/api/v1/dlp/events/%d/review", eventA), bytes.NewReader(escalateBody), sessionToken)
+	if escalateResp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(escalateResp.Body)
+		tFatalf(t, escalateResp, "expected review update", b)
+	}
+	escalated := readJSON(t, escalateResp)
+	if escalated["review_status"] != "escalated" || escalated["reviewed_by"] != emailA {
+		t.Fatalf("unexpected escalated review payload: %#v", escalated)
+	}
+	if _, ok := escalated["reviewed_at"].(string); !ok {
+		t.Fatalf("reviewed_at missing from escalated payload: %#v", escalated)
+	}
+
+	auditRows, total, err := env.db.ListAuditLog(context.Background(), store.AuditLogFilter{
+		OrgID:  orgA,
+		Action: "dlp.event.reviewed",
+		Page:   1,
+		Limit:  10,
+	})
+	if err != nil {
+		t.Fatalf("list audit log: %v", err)
+	}
+	if total < 1 {
+		t.Fatal("expected DLP review audit entry")
+	}
+	foundAudit := false
+	for _, entry := range auditRows {
+		if entry.ResourceID == fmt.Sprintf("%d", eventA) && entry.Details["review_status"] == "escalated" {
+			foundAudit = true
+			break
+		}
+	}
+	if !foundAudit {
+		t.Fatalf("expected audit entry for event %d, got %#v", eventA, auditRows)
+	}
+
+	clearBody, _ := json.Marshal(map[string]string{"review_status": "unreviewed"})
+	clearResp := env.authReq(http.MethodPatch, fmt.Sprintf("/api/v1/dlp/events/%d/review", eventA), bytes.NewReader(clearBody), sessionToken)
+	if clearResp.StatusCode != http.StatusOK {
+		b, _ := io.ReadAll(clearResp.Body)
+		tFatalf(t, clearResp, "expected review clear", b)
+	}
+	clearResp.Body.Close()
+	cleared, err := env.db.GetDLPEvent(context.Background(), orgA, eventA)
+	if err != nil {
+		t.Fatalf("get cleared event: %v", err)
+	}
+	if cleared == nil || cleared.ReviewStatus != "unreviewed" || cleared.ReviewNote != nil || cleared.ReviewedBy != nil || cleared.ReviewedAt != nil {
+		t.Fatalf("review fields were not cleared: %#v", cleared)
 	}
 }
 

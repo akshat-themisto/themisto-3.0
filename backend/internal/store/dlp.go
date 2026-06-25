@@ -13,43 +13,47 @@ import (
 
 // DLPEvent represents a DLP match event stored in the dlp_events table.
 type DLPEvent struct {
-	ID                   int64     `json:"id"`
-	Timestamp            time.Time `json:"timestamp"`
-	DeviceID             string    `json:"device_id"`
-	DeviceName           string    `json:"device_name"`
-	OrgID                string    `json:"org_id"`
-	RequestID            *string   `json:"request_id,omitempty"`
-	RequestHost          string    `json:"request_host"`
-	RequestPath          *string   `json:"request_path,omitempty"`
-	RequestMethod        string    `json:"request_method"`
-	SourceApp            *string   `json:"source_app,omitempty"`
-	ServiceCategory      *string   `json:"service_category,omitempty"`
-	AIVendor             *string   `json:"ai_vendor,omitempty"`
-	MatchTypes           []string  `json:"match_types"`
-	MatchedPatterns      []string  `json:"matched_patterns"`
-	MatchedFields        []string  `json:"matched_fields"`
-	MatchCount           int       `json:"match_count"`
-	Severity             string    `json:"severity"`
-	ClassificationReason *string   `json:"classification_reason,omitempty"`
-	ContentType          *string   `json:"content_type,omitempty"`
-	FileCount            int       `json:"file_count"`
-	ActionTaken          string    `json:"action_taken"`
-	PolicyRuleID         *string   `json:"policy_rule_id,omitempty"`
-	RuleID               *string   `json:"rule_id,omitempty"`
-	ReasonCode           *string   `json:"reason_code,omitempty"`
-	ReasonDetail         *string   `json:"reason_detail,omitempty"`
-	SemanticSource       *string   `json:"semantic_source,omitempty"`
-	SemanticCategory     *string   `json:"semantic_category,omitempty"`
-	SemanticConfidence   *float64  `json:"semantic_confidence,omitempty"`
-	SemanticAmbiguous    *bool     `json:"semantic_ambiguous,omitempty"`
-	SemanticReason       *string   `json:"semantic_reason,omitempty"`
-	Protocol             string    `json:"protocol"`
-	InterceptedHTTPS     bool      `json:"intercepted_https"`
-	InspectionQuality    string    `json:"inspection_quality"`
-	InspectionSkipReason *string   `json:"inspection_skip_reason,omitempty"`
-	Direction            string    `json:"direction"`
-	HasRequestBody       bool      `json:"has_request_body"`
-	RequestBodyTruncated bool      `json:"request_body_truncated"`
+	ID                   int64      `json:"id"`
+	Timestamp            time.Time  `json:"timestamp"`
+	DeviceID             string     `json:"device_id"`
+	DeviceName           string     `json:"device_name"`
+	OrgID                string     `json:"org_id"`
+	RequestID            *string    `json:"request_id,omitempty"`
+	RequestHost          string     `json:"request_host"`
+	RequestPath          *string    `json:"request_path,omitempty"`
+	RequestMethod        string     `json:"request_method"`
+	SourceApp            *string    `json:"source_app,omitempty"`
+	ServiceCategory      *string    `json:"service_category,omitempty"`
+	AIVendor             *string    `json:"ai_vendor,omitempty"`
+	MatchTypes           []string   `json:"match_types"`
+	MatchedPatterns      []string   `json:"matched_patterns"`
+	MatchedFields        []string   `json:"matched_fields"`
+	MatchCount           int        `json:"match_count"`
+	Severity             string     `json:"severity"`
+	ClassificationReason *string    `json:"classification_reason,omitempty"`
+	ContentType          *string    `json:"content_type,omitempty"`
+	FileCount            int        `json:"file_count"`
+	ActionTaken          string     `json:"action_taken"`
+	PolicyRuleID         *string    `json:"policy_rule_id,omitempty"`
+	RuleID               *string    `json:"rule_id,omitempty"`
+	ReasonCode           *string    `json:"reason_code,omitempty"`
+	ReasonDetail         *string    `json:"reason_detail,omitempty"`
+	SemanticSource       *string    `json:"semantic_source,omitempty"`
+	SemanticCategory     *string    `json:"semantic_category,omitempty"`
+	SemanticConfidence   *float64   `json:"semantic_confidence,omitempty"`
+	SemanticAmbiguous    *bool      `json:"semantic_ambiguous,omitempty"`
+	SemanticReason       *string    `json:"semantic_reason,omitempty"`
+	Protocol             string     `json:"protocol"`
+	InterceptedHTTPS     bool       `json:"intercepted_https"`
+	InspectionQuality    string     `json:"inspection_quality"`
+	InspectionSkipReason *string    `json:"inspection_skip_reason,omitempty"`
+	Direction            string     `json:"direction"`
+	HasRequestBody       bool       `json:"has_request_body"`
+	RequestBodyTruncated bool       `json:"request_body_truncated"`
+	ReviewStatus         string     `json:"review_status"`
+	ReviewNote           *string    `json:"review_note,omitempty"`
+	ReviewedBy           *string    `json:"reviewed_by,omitempty"`
+	ReviewedAt           *time.Time `json:"reviewed_at,omitempty"`
 }
 
 // DLPEventBody represents decrypted request body for a specific DLP event.
@@ -73,16 +77,28 @@ type DLPEventBody struct {
 
 // DLPFilter holds filtering options for listing DLP events.
 type DLPFilter struct {
-	OrgID       string
-	DeviceID    string
-	RequestHost string
-	AIVendor    string
-	MatchType   string
-	Protocol    string
-	DateFrom    *time.Time
-	DateTo      *time.Time
-	Page        int
-	Limit       int
+	OrgID          string
+	DeviceID       string
+	RequestHost    string
+	AIVendor       string
+	MatchType      string
+	Protocol       string
+	Severity       string
+	ActionTaken    string
+	ReviewStatus   string
+	SemanticSource string
+	Sort           string
+	Order          string
+	DateFrom       *time.Time
+	DateTo         *time.Time
+	Page           int
+	Limit          int
+}
+
+type DLPReviewInput struct {
+	Status     string
+	Note       string
+	ReviewedBy string
 }
 
 // ListDLPEvents returns a paginated list of DLP events for the given org.
@@ -128,6 +144,26 @@ func (s *Store) ListDLPEvents(ctx context.Context, filter DLPFilter) ([]DLPEvent
 		args = append(args, filter.Protocol)
 		argN++
 	}
+	if filter.Severity != "" {
+		where += fmt.Sprintf(" AND e.severity = $%d", argN)
+		args = append(args, strings.ToLower(strings.TrimSpace(filter.Severity)))
+		argN++
+	}
+	if filter.ActionTaken != "" {
+		where += fmt.Sprintf(" AND e.action_taken = $%d", argN)
+		args = append(args, strings.ToLower(strings.TrimSpace(filter.ActionTaken)))
+		argN++
+	}
+	if filter.ReviewStatus != "" {
+		where += fmt.Sprintf(" AND e.review_status = $%d", argN)
+		args = append(args, strings.ToLower(strings.TrimSpace(filter.ReviewStatus)))
+		argN++
+	}
+	if filter.SemanticSource != "" {
+		where += fmt.Sprintf(" AND e.semantic_source ILIKE $%d", argN)
+		args = append(args, "%"+filter.SemanticSource+"%")
+		argN++
+	}
 	if filter.DateFrom != nil {
 		where += fmt.Sprintf(" AND e.timestamp >= $%d", argN)
 		args = append(args, *filter.DateFrom)
@@ -145,6 +181,7 @@ func (s *Store) ListDLPEvents(ctx context.Context, filter DLPFilter) ([]DLPEvent
 	}
 
 	offset := (filter.Page - 1) * filter.Limit
+	orderBy := dlpOrderClause(filter.Sort, filter.Order)
 	query := fmt.Sprintf(
 		`SELECT e.id, e.timestamp, e.device_id, COALESCE(d.device_name, ''), e.org_id,
 		        e.request_id, e.request_host, e.request_path, e.request_method, e.source_app,
@@ -153,11 +190,12 @@ func (s *Store) ListDLPEvents(ctx context.Context, filter DLPFilter) ([]DLPEvent
 		        e.policy_rule_id, e.reason_code, e.reason_detail,
 		        e.semantic_source, e.semantic_category, e.semantic_confidence, e.semantic_ambiguous, e.semantic_reason,
 		        e.protocol, e.intercepted_https, e.inspection_quality, e.inspection_skip_reason, e.direction,
-		        (e.request_body_encrypted IS NOT NULL), e.request_body_truncated
+		        (e.request_body_encrypted IS NOT NULL), e.request_body_truncated,
+		        e.review_status, e.review_note, e.reviewed_by, e.reviewed_at
 		 FROM dlp_events e
 		 LEFT JOIN devices d ON d.id::text = e.device_id AND d.org_id::text = e.org_id
-		 %s ORDER BY e.timestamp DESC LIMIT $%d OFFSET $%d`,
-		where, argN, argN+1,
+		 %s ORDER BY %s LIMIT $%d OFFSET $%d`,
+		where, orderBy, argN, argN+1,
 	)
 	args = append(args, filter.Limit, offset)
 
@@ -180,6 +218,7 @@ func (s *Store) ListDLPEvents(ctx context.Context, filter DLPFilter) ([]DLPEvent
 			&e.SemanticSource, &e.SemanticCategory, &e.SemanticConfidence, &e.SemanticAmbiguous, &e.SemanticReason,
 			&e.Protocol, &e.InterceptedHTTPS, &e.InspectionQuality, &e.InspectionSkipReason, &e.Direction,
 			&e.HasRequestBody, &e.RequestBodyTruncated,
+			&e.ReviewStatus, &e.ReviewNote, &e.ReviewedBy, &e.ReviewedAt,
 		); err != nil {
 			return nil, 0, err
 		}
@@ -196,6 +235,9 @@ func (s *Store) ListDLPEvents(ctx context.Context, filter DLPFilter) ([]DLPEvent
 		if strings.TrimSpace(e.Severity) == "" {
 			e.Severity = "low"
 		}
+		if strings.TrimSpace(e.ReviewStatus) == "" {
+			e.ReviewStatus = "unreviewed"
+		}
 		events = append(events, e)
 	}
 	return events, total, rows.Err()
@@ -211,7 +253,8 @@ func (s *Store) GetDLPEvent(ctx context.Context, orgID string, eventID int64) (*
 		       e.policy_rule_id, e.reason_code, e.reason_detail,
 		       e.semantic_source, e.semantic_category, e.semantic_confidence, e.semantic_ambiguous, e.semantic_reason,
 		       e.protocol, e.intercepted_https, e.inspection_quality, e.inspection_skip_reason, e.direction,
-		       (e.request_body_encrypted IS NOT NULL), e.request_body_truncated
+		       (e.request_body_encrypted IS NOT NULL), e.request_body_truncated,
+		       e.review_status, e.review_note, e.reviewed_by, e.reviewed_at
 		FROM dlp_events e
 		LEFT JOIN devices d ON d.id::text = e.device_id AND d.org_id::text = e.org_id
 		WHERE e.id = $1 AND e.org_id = $2
@@ -228,6 +271,7 @@ func (s *Store) GetDLPEvent(ctx context.Context, orgID string, eventID int64) (*
 		&e.SemanticSource, &e.SemanticCategory, &e.SemanticConfidence, &e.SemanticAmbiguous, &e.SemanticReason,
 		&e.Protocol, &e.InterceptedHTTPS, &e.InspectionQuality, &e.InspectionSkipReason, &e.Direction,
 		&e.HasRequestBody, &e.RequestBodyTruncated,
+		&e.ReviewStatus, &e.ReviewNote, &e.ReviewedBy, &e.ReviewedAt,
 	); err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
 			return nil, nil
@@ -247,7 +291,72 @@ func (s *Store) GetDLPEvent(ctx context.Context, orgID string, eventID int64) (*
 	if strings.TrimSpace(e.Severity) == "" {
 		e.Severity = "low"
 	}
+	if strings.TrimSpace(e.ReviewStatus) == "" {
+		e.ReviewStatus = "unreviewed"
+	}
 	return &e, nil
+}
+
+func (s *Store) UpdateDLPEventReview(ctx context.Context, orgID string, eventID int64, input DLPReviewInput) (*DLPEvent, error) {
+	status := strings.ToLower(strings.TrimSpace(input.Status))
+	if status == "" {
+		status = "unreviewed"
+	}
+	switch status {
+	case "unreviewed", "reviewed", "false_positive", "escalated":
+	default:
+		return nil, fmt.Errorf("invalid review_status %q", input.Status)
+	}
+
+	note := strings.TrimSpace(input.Note)
+	reviewedBy := strings.TrimSpace(input.ReviewedBy)
+	if status == "unreviewed" {
+		_, err := s.DB.ExecContext(ctx, `
+			UPDATE dlp_events
+			SET review_status = 'unreviewed',
+			    review_note = NULL,
+			    reviewed_by = NULL,
+			    reviewed_at = NULL
+			WHERE id = $1 AND org_id = $2`, eventID, orgID)
+		if err != nil {
+			return nil, err
+		}
+		return s.GetDLPEvent(ctx, orgID, eventID)
+	}
+
+	_, err := s.DB.ExecContext(ctx, `
+		UPDATE dlp_events
+		SET review_status = $1,
+		    review_note = NULLIF($2, ''),
+		    reviewed_by = NULLIF($3, ''),
+		    reviewed_at = now()
+		WHERE id = $4 AND org_id = $5`, status, note, reviewedBy, eventID, orgID)
+	if err != nil {
+		return nil, err
+	}
+	return s.GetDLPEvent(ctx, orgID, eventID)
+}
+
+func dlpOrderClause(sortField, order string) string {
+	direction := "DESC"
+	if strings.EqualFold(strings.TrimSpace(order), "asc") {
+		direction = "ASC"
+	}
+
+	switch strings.ToLower(strings.TrimSpace(sortField)) {
+	case "severity":
+		return "CASE e.severity WHEN 'critical' THEN 4 WHEN 'high' THEN 3 WHEN 'medium' THEN 2 WHEN 'low' THEN 1 ELSE 0 END " + direction + ", e.timestamp DESC"
+	case "outcome", "action_taken":
+		return "e.action_taken " + direction + ", e.timestamp DESC"
+	case "review", "review_status":
+		return "e.review_status " + direction + ", e.timestamp DESC"
+	case "host", "request_host":
+		return "e.request_host " + direction + ", e.timestamp DESC"
+	case "device":
+		return "COALESCE(d.device_name, e.device_id) " + direction + ", e.timestamp DESC"
+	default:
+		return "e.timestamp " + direction
+	}
 }
 
 // GetDLPEventBody returns decrypted request body for a DLP event in the org.

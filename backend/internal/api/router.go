@@ -21,6 +21,8 @@ type Server struct {
 	signer           *signing.Signer
 	apiKey           string
 	operatorOrgID    string
+	operatorMode     string
+	promptTestURL    string
 	tokenTTL         time.Duration
 	publicBackendURL string
 	publicGatewayURL string
@@ -40,6 +42,8 @@ func NewServer(
 	signer *signing.Signer,
 	apiKey string,
 	operatorOrgID string,
+	operatorMode string,
+	promptTestURL string,
 	tokenTTL time.Duration,
 	publicBackendURL string,
 	publicGatewayURL string,
@@ -50,6 +54,7 @@ func NewServer(
 	if tokenTTL <= 0 {
 		tokenTTL = 24 * time.Hour
 	}
+	operatorMode = normalizeOperatorMode(operatorMode)
 
 	corsMap := make(map[string]bool, len(corsAllowedOrigins))
 	for _, o := range corsAllowedOrigins {
@@ -61,6 +66,8 @@ func NewServer(
 		signer:             signer,
 		apiKey:             apiKey,
 		operatorOrgID:      strings.TrimSpace(operatorOrgID),
+		operatorMode:       operatorMode,
+		promptTestURL:      strings.TrimSpace(promptTestURL),
 		tokenTTL:           tokenTTL,
 		publicBackendURL:   strings.TrimRight(publicBackendURL, "/"),
 		publicGatewayURL:   strings.TrimRight(publicGatewayURL, "/"),
@@ -88,13 +95,13 @@ func NewServer(
 	srv.mux.HandleFunc("POST /api/v1/operator/auth/login", withRateLimit(srv.operatorAuthRL, srv.handleOperatorLogin))
 	srv.mux.HandleFunc("POST /api/v1/operator/auth/logout", srv.handleOperatorLogout)
 	srv.mux.HandleFunc("GET /api/v1/operator/auth/me", srv.withOperatorAuth(srv.handleOperatorMe))
-	srv.mux.HandleFunc("GET /api/v1/operator/orgs", srv.withOperatorAuth(srv.handleOperatorListOrgs))
+	srv.mux.HandleFunc("GET /api/v1/operator/orgs", srv.withOperatorAuth(srv.requireControlPlaneOperator(srv.handleOperatorListOrgs)))
 	srv.mux.HandleFunc("GET /api/v1/operator/fleet", srv.withOperatorAuth(srv.handleOperatorFleet))
-	srv.mux.HandleFunc("POST /api/v1/operator/orgs", srv.withOperatorAuth(srv.handleOperatorCreateOrg))
-	srv.mux.HandleFunc("PUT /api/v1/operator/orgs/{orgID}/provisioning", srv.withOperatorAuth(srv.handleOperatorUpdateProvisioning))
-	srv.mux.HandleFunc("POST /api/v1/operator/orgs/{orgID}/deployment-package", srv.withOperatorAuth(srv.handleOperatorCreateDeploymentPackage))
-	srv.mux.HandleFunc("PUT /api/v1/operator/orgs/{orgID}/status", srv.withOperatorAuth(srv.handleOperatorUpdateStatus))
-	srv.mux.HandleFunc("POST /api/v1/operator/orgs/{orgID}/revoke-certs", srv.withOperatorAuth(srv.handleOperatorRevokeOrgCerts))
+	srv.mux.HandleFunc("POST /api/v1/operator/orgs", srv.withOperatorAuth(srv.requireControlPlaneOperator(srv.handleOperatorCreateOrg)))
+	srv.mux.HandleFunc("PUT /api/v1/operator/orgs/{orgID}/provisioning", srv.withOperatorAuth(srv.requireControlPlaneOperator(srv.handleOperatorUpdateProvisioning)))
+	srv.mux.HandleFunc("POST /api/v1/operator/orgs/{orgID}/deployment-package", srv.withOperatorAuth(srv.requireControlPlaneOperator(srv.handleOperatorCreateDeploymentPackage)))
+	srv.mux.HandleFunc("PUT /api/v1/operator/orgs/{orgID}/status", srv.withOperatorAuth(srv.requireControlPlaneOperator(srv.handleOperatorUpdateStatus)))
+	srv.mux.HandleFunc("POST /api/v1/operator/orgs/{orgID}/revoke-certs", srv.withOperatorAuth(srv.requireControlPlaneOperator(srv.handleOperatorRevokeOrgCerts)))
 
 	// Device/enrollment API (API-key auth)
 	srv.mux.HandleFunc("POST /api/v1/devices", srv.withAuth(srv.handleRegisterDevice))
@@ -139,6 +146,7 @@ func NewServer(
 	// DLP
 	srv.mux.HandleFunc("GET /api/v1/dlp/events", srv.withSession(srv.handleListDLPEvents))
 	srv.mux.HandleFunc("GET /api/v1/dlp/events/{id}", srv.withSession(srv.handleGetDLPEvent))
+	srv.mux.HandleFunc("PATCH /api/v1/dlp/events/{id}/review", srv.withRole("admin", srv.handleUpdateDLPEventReview))
 	srv.mux.HandleFunc("GET /api/v1/dlp/events/{id}/body", srv.withRole("admin", srv.handleGetDLPEventBody))
 	srv.mux.HandleFunc("GET /api/v1/dlp/summary", srv.withSession(srv.handleDLPSummary))
 	srv.mux.HandleFunc("GET /api/v1/alerts", srv.withRole("admin", srv.handleListAlerts))
@@ -146,10 +154,13 @@ func NewServer(
 
 	// Policies (v2)
 	srv.mux.HandleFunc("GET /api/v1/policies", srv.withSession(srv.handleListPolicies))
+	srv.mux.HandleFunc("GET /api/v1/policies/enforcement", srv.withRole("admin", srv.handleGetPolicyEnforcement))
+	srv.mux.HandleFunc("PUT /api/v1/policies/enforcement", srv.withRole("admin", srv.handleUpdatePolicyEnforcement))
 	srv.mux.HandleFunc("POST /api/v1/policies", srv.withRole("admin", srv.handleCreatePolicy))
 	srv.mux.HandleFunc("PUT /api/v1/policies/{id}", srv.withRole("admin", srv.handleUpdatePolicy))
 	srv.mux.HandleFunc("DELETE /api/v1/policies/{id}", srv.withRole("admin", srv.handleDeletePolicy))
 	srv.mux.HandleFunc("POST /api/v1/policies/test", srv.withRole("admin", srv.handleTestPolicy))
+	srv.mux.HandleFunc("POST /api/v1/policies/prompt-test", srv.withRole("admin", srv.handlePromptPolicyTest))
 
 	// Evidence exports
 	srv.mux.HandleFunc("GET /api/v1/evidence/policies", srv.withRole("admin", srv.handleExportPolicySnapshot))
@@ -164,6 +175,25 @@ func NewServer(
 	srv.mux.HandleFunc("PUT /api/v1/auth/password", srv.withSession(srv.handleChangePassword))
 
 	return srv
+}
+
+func normalizeOperatorMode(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "control_plane":
+		return "control_plane"
+	default:
+		return "customer_ops"
+	}
+}
+
+func (s *Server) requireControlPlaneOperator(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if normalizeOperatorMode(s.operatorMode) != "control_plane" {
+			writeError(w, http.StatusForbidden, "OPERATOR_MODE_RESTRICTED", "operator control-plane APIs are disabled in customer operations mode")
+			return
+		}
+		next(w, r)
+	}
 }
 
 func (s *Server) ServeHTTP(w http.ResponseWriter, r *http.Request) {

@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import {
     Activity,
     AlertTriangle,
+    ChevronLeft,
+    ChevronRight,
     CheckCircle2,
     Cpu,
     MonitorCog,
@@ -60,6 +62,20 @@ function ComponentState({ label, value, healthyValues = ['healthy', 'ok', true] 
     );
 }
 
+function SurfaceStateChips({ states = {} }) {
+    const entries = Object.entries(states || {});
+    if (!entries.length) return null;
+    return (
+        <div className="fleet-surface-states">
+            {entries.map(([surface, state]) => (
+                <span className={`fleet-surface-chip ${state}`} key={surface} title={`${surface}: ${state}`}>
+                    {surface.replace('browser_', '').replace('_', ' ')}: {state.replace('_', ' ')}
+                </span>
+            ))}
+        </div>
+    );
+}
+
 function signalLabel(type) {
     return ({
         'proxy.tamper_detected': 'Proxy settings changed outside Themisto',
@@ -76,20 +92,28 @@ export default function FleetMonitoring() {
     const [error, setError] = useState('');
     const [query, setQuery] = useState('');
     const [status, setStatus] = useState('');
+    const [page, setPage] = useState(1);
+    const [pageSize, setPageSize] = useState(25);
     const [autoRefresh, setAutoRefresh] = useState(true);
 
     const loadFleet = useCallback(async (quiet = false) => {
         if (!quiet) setLoading(true);
         setError('');
         try {
-            const response = await operatorApi.fleet({ signal_limit: 100 });
+            const response = await operatorApi.fleet({
+                signal_limit: 100,
+                page,
+                limit: pageSize,
+                status,
+                q: query.trim(),
+            });
             setData(response || { summary: {}, devices: [], signals: [] });
         } catch (err) {
             setError(err.message || 'Could not load fleet monitoring');
         } finally {
             if (!quiet) setLoading(false);
         }
-    }, []);
+    }, [page, pageSize, query, status]);
 
     useEffect(() => {
         loadFleet();
@@ -101,17 +125,12 @@ export default function FleetMonitoring() {
         return () => window.clearInterval(timer);
     }, [autoRefresh, loadFleet]);
 
-    const filteredDevices = useMemo(() => {
-        const needle = query.trim().toLowerCase();
-        return (data.devices || []).filter((device) => {
-            if (status && device.connectivity !== status) return false;
-            if (!needle) return true;
-            return [device.device_name, device.device_id, device.os, device.agent_version]
-                .some((value) => String(value || '').toLowerCase().includes(needle));
-        });
-    }, [data.devices, query, status]);
-
     const summary = data.summary || {};
+    const devices = data.devices || [];
+    const total = Number(data.total || devices.length || 0);
+    const totalPages = Math.max(1, Math.ceil(total / pageSize));
+    const firstVisibleDevice = total === 0 ? 0 : ((page - 1) * pageSize) + 1;
+    const lastVisibleDevice = Math.min(page * pageSize, total);
 
     return (
         <>
@@ -136,38 +155,52 @@ export default function FleetMonitoring() {
                 {error && <div className="alert alert-danger">{error}</div>}
 
                 <section className="fleet-summary-grid">
-                    <button className={`fleet-summary ${status === '' ? 'selected' : ''}`} onClick={() => setStatus('')}>
+                    <button className={`fleet-summary ${status === '' ? 'selected' : ''}`} onClick={() => { setStatus(''); setPage(1); }}>
                         <Activity size={18} /><span>Managed Devices</span><strong>{summary.total || 0}</strong>
                     </button>
-                    <button className={`fleet-summary connected ${status === 'connected' ? 'selected' : ''}`} onClick={() => setStatus('connected')}>
+                    <button className={`fleet-summary connected ${status === 'connected' ? 'selected' : ''}`} onClick={() => { setStatus('connected'); setPage(1); }}>
                         <Wifi size={18} /><span>Connected</span><strong>{summary.connected || 0}</strong>
                     </button>
-                    <button className={`fleet-summary degraded ${status === 'degraded' ? 'selected' : ''}`} onClick={() => setStatus('degraded')}>
+                    <button className={`fleet-summary degraded ${status === 'degraded' ? 'selected' : ''}`} onClick={() => { setStatus('degraded'); setPage(1); }}>
                         <AlertTriangle size={18} /><span>Degraded</span><strong>{summary.degraded || 0}</strong>
                     </button>
-                    <button className={`fleet-summary offline ${status === 'offline' ? 'selected' : ''}`} onClick={() => setStatus('offline')}>
+                    <button className={`fleet-summary offline ${status === 'offline' ? 'selected' : ''}`} onClick={() => { setStatus('offline'); setPage(1); }}>
                         <WifiOff size={18} /><span>Offline</span><strong>{summary.offline || 0}</strong>
                     </button>
-                    <button className={`fleet-summary tamper ${status === 'suspected_tamper' ? 'selected' : ''}`} onClick={() => setStatus('suspected_tamper')}>
+                    <button className={`fleet-summary tamper ${status === 'suspected_tamper' ? 'selected' : ''}`} onClick={() => { setStatus('suspected_tamper'); setPage(1); }}>
                         <ShieldAlert size={18} /><span>Suspected Tamper</span><strong>{summary.suspected_tamper || 0}</strong>
                     </button>
-                    <button className={`fleet-summary ${status === 'never_seen' ? 'selected' : ''}`} onClick={() => setStatus('never_seen')}>
+                    <button className={`fleet-summary ${status === 'never_seen' ? 'selected' : ''}`} onClick={() => { setStatus('never_seen'); setPage(1); }}>
                         <Radio size={18} /><span>Never Seen</span><strong>{summary.never_seen || 0}</strong>
                     </button>
+                </section>
+                <section className="fleet-summary-grid fleet-protection-grid">
+                    <div className="fleet-summary">
+                        <ShieldCheck size={18} /><span>Protected</span><strong>{summary.protected || 0}</strong>
+                    </div>
+                    <div className="fleet-summary degraded">
+                        <AlertTriangle size={18} /><span>Monitor Only</span><strong>{summary.monitor_only || 0}</strong>
+                    </div>
+                    <div className="fleet-summary tamper">
+                        <ShieldAlert size={18} /><span>Unprotected</span><strong>{summary.unprotected || 0}</strong>
+                    </div>
                 </section>
 
                 <section className="fleet-workspace">
                     <div className="fleet-section-head">
-                        <div><h2>Device Health</h2><span>{filteredDevices.length} devices shown · generated {formatDate(data.generated_at)}</span></div>
-                        <div className="fleet-search"><Search size={15} /><input value={query} onChange={(e) => setQuery(e.target.value)} placeholder="Search device, OS, version" /></div>
+                        <div><h2>Device Health</h2><span>{firstVisibleDevice}-{lastVisibleDevice} of {total} devices shown · generated {formatDate(data.generated_at)}</span></div>
+                        <div className="fleet-search"><Search size={15} /><input value={query} onChange={(e) => { setQuery(e.target.value); setPage(1); }} placeholder="Search device, hostname, user, OS, version" /></div>
                     </div>
                     <div className="data-table-wrap fleet-table-wrap">
                         <table className="data-table fleet-table">
                             <thead><tr><th>Device</th><th>State</th><th>Last Signal</th><th>Components</th><th>Version</th><th>Certificate</th></tr></thead>
                             <tbody>
-                                {filteredDevices.map((device) => (
+                                {devices.map((device) => (
                                     <tr key={device.device_id}>
-                                        <td><strong>{device.device_name}</strong><span>{device.os}</span></td>
+                                        <td>
+                                            <strong>{device.device_name || device.hostname || device.device_id}</strong>
+                                            <span>{[device.hostname, device.agent_user, device.os].filter(Boolean).join(' / ') || device.device_id}</span>
+                                        </td>
                                         <td><StatusBadge value={device.connectivity} /><small>{device.health_reason}</small></td>
                                         <td><strong>{relativeTime(device.last_seen_at)}</strong><span>{formatDate(device.last_seen_at)}</span></td>
                                         <td><div className="fleet-components">
@@ -175,16 +208,40 @@ export default function FleetMonitoring() {
                                             <ComponentState label="Proxy" value={device.proxy_listener_alive} />
                                             <ComponentState label="Capture" value={device.prompt_capture} />
                                             <ComponentState label="Classifier" value={device.semantic_classifier} healthyValues={['healthy', 'disabled']} />
+                                            <ComponentState label="Protection" value={device.protection_state || 'unknown'} healthyValues={['protected']} />
 											<ComponentState label="Service" value={device.service_status} healthyValues={['running']} />
                                             <ComponentState label="Integrity" value={device.proxy_integrity} />
+                                            <SurfaceStateChips states={device.surface_states} />
                                         </div></td>
                                         <td><strong>{device.agent_version || '-'}</strong><span>{device.policy_version || 'No policy version'}</span></td>
                                         <td><strong>{device.certificate_status || 'none'}</strong><span>{formatDate(device.certificate_expires_at)}</span></td>
                                     </tr>
                                 ))}
-                                {!filteredDevices.length && <tr><td colSpan="6"><div className="empty-state"><Cpu size={24} /><div>No devices match this view.</div></div></td></tr>}
+                                {!devices.length && <tr><td colSpan="6"><div className="empty-state"><Cpu size={24} /><div>No devices match this view.</div></div></td></tr>}
                             </tbody>
                         </table>
+                    </div>
+                    <div className="data-table-footer fleet-pagination-footer">
+                        <div><strong>{firstVisibleDevice}-{lastVisibleDevice}</strong> of {total} devices</div>
+                        <div className="dlp-pagination-controls">
+                            <label>
+                                Rows
+                                <select className="form-select dlp-page-size" value={pageSize} onChange={(event) => { setPageSize(Number(event.target.value)); setPage(1); }}>
+                                    <option value={25}>25</option>
+                                    <option value={50}>50</option>
+                                    <option value={100}>100</option>
+                                </select>
+                            </label>
+                            <span>Page {page} of {totalPages}</span>
+                            <div className="pagination">
+                                <button title="Previous page" aria-label="Previous page" onClick={() => setPage((p) => Math.max(1, p - 1))} disabled={page === 1}>
+                                    <ChevronLeft size={15} />
+                                </button>
+                                <button title="Next page" aria-label="Next page" onClick={() => setPage((p) => Math.min(totalPages, p + 1))} disabled={page === totalPages}>
+                                    <ChevronRight size={15} />
+                                </button>
+                            </div>
+                        </div>
                     </div>
                 </section>
 

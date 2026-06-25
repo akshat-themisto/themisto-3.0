@@ -78,6 +78,8 @@ func main() {
 			signer,
 			cfg.AdminAPIKey,
 			cfg.OperatorOrgID,
+			cfg.OperatorMode,
+			cfg.PromptTestURL,
 			time.Duration(cfg.Token.ExpiryHours)*time.Hour,
 			cfg.Public.BackendURL,
 			cfg.Public.GatewayURL,

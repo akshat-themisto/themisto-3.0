@@ -33,7 +33,7 @@ var extensionFS embed.FS
 //go:embed all:assets/bootstrap
 var bootstrapFS embed.FS
 
-//go:embed all:assets/classifier
+//go:embed assets/classifier/download-model.ps1 assets/classifier/labels.json assets/classifier/README.md assets/classifier/requirements.txt assets/classifier/server.py assets/classifier/start-semantic-classifier.ps1
 var classifierFS embed.FS
 
 const (
@@ -490,6 +490,7 @@ func mergeInstalledConfigDefaults(installed, embedded map[string]interface{}) {
 		"https_intercept_fail_mode", "https_intercept_capture_mode",
 		"prompt_semantics_policy", "prompt_semantics_local_url",
 		"prompt_semantics_local_timeout", "prompt_semantics_gateway_timeout",
+		"prompt_enforcement_mode",
 	} {
 		if strings.TrimSpace(getString(installed, key)) == "" && strings.TrimSpace(getString(embedded, key)) != "" {
 			installed[key] = embedded[key]
@@ -500,6 +501,7 @@ func mergeInstalledConfigDefaults(installed, embedded map[string]interface{}) {
 		"https_intercept_enabled", "https_intercept_domains",
 		"https_intercept_protocols", "insecure_enrollment_tls",
 		"prompt_semantics_enabled", "prompt_semantics_gateway_enabled",
+		"prompt_fail_closed_surfaces",
 	} {
 		if _, ok := installed[key]; !ok {
 			if value, exists := embedded[key]; exists {
@@ -549,6 +551,18 @@ func ensureInstallerConfigDefaults(cfg map[string]interface{}) {
 	}
 	if strings.TrimSpace(getString(cfg, "prompt_semantics_gateway_timeout")) == "" {
 		cfg["prompt_semantics_gateway_timeout"] = "900ms"
+	}
+	if strings.TrimSpace(getString(cfg, "prompt_enforcement_mode")) == "" {
+		cfg["prompt_enforcement_mode"] = "enforce"
+	}
+	if _, ok := cfg["prompt_fail_closed_surfaces"]; !ok {
+		cfg["prompt_fail_closed_surfaces"] = []string{
+			"browser_chromium",
+			"browser_firefox",
+			"browser_safari",
+			"claude_code",
+			"cursor",
+		}
 	}
 }
 

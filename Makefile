@@ -4,7 +4,7 @@
        gen-certs migrate clean \
        build-desktop-darwin \
        package-macos package-macos-desktop package-windows package-device package-device-config \
-       package-browser-extensions render-browser-policies package-customer-delivery
+       package-browser-extensions check-packext-drift render-browser-policies package-customer-delivery
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Build
@@ -91,6 +91,11 @@ build-installer:
 
 install-wails:
 	go install github.com/wailsapp/wails/v2/cmd/wails@latest
+
+check-packext-drift:
+	go run ./cmd/packext
+	git diff --exit-code -- cmd/installer/assets/extensions
+	test -z "$$(git status --porcelain --untracked-files=all -- cmd/installer/assets/extensions)"
 
 # ──────────────────────────────────────────────────────────────────────────────
 # Installer Packaging

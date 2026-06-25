@@ -10,6 +10,14 @@ type policyRuleLookup interface {
 	RuleByID(id string) *domain.PolicyRule
 }
 
+type promptEnforcementOverrideProvider interface {
+	PromptEnforcementOverride() string
+}
+
+type policyVersionProvider interface {
+	Version() string
+}
+
 // DefaultRouter implements the Router interface by delegating to the policy
 // Engine. If the engine returns an error, the configured default decision is
 // used as a fallback.
@@ -54,4 +62,23 @@ func (r *DefaultRouter) LookupRule(id string) *domain.PolicyRule {
 		return nil
 	}
 	return lookup.RuleByID(id)
+}
+
+// PromptEnforcementOverride returns a remotely synced prompt enforcement
+// override when the underlying policy engine supports it.
+func (r *DefaultRouter) PromptEnforcementOverride() string {
+	provider, ok := r.engine.(promptEnforcementOverrideProvider)
+	if !ok {
+		return ""
+	}
+	return provider.PromptEnforcementOverride()
+}
+
+// PolicyVersion returns the active policy version when available.
+func (r *DefaultRouter) PolicyVersion() string {
+	provider, ok := r.engine.(policyVersionProvider)
+	if !ok {
+		return ""
+	}
+	return provider.Version()
 }

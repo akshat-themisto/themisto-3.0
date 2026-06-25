@@ -446,12 +446,14 @@ func (s *Store) GetOrganizationByID(ctx context.Context, id string) (*Organizati
 		`SELECT id, name, slug, api_key_hash, status,
 		        COALESCE(public_backend_url, ''), COALESCE(public_gateway_url, ''),
 		        COALESCE(status_reason, ''), status_updated_at,
-		        COALESCE(status_updated_by, ''), created_at, updated_at
+		        COALESCE(status_updated_by, ''),
+		        COALESCE(prompt_enforcement_override, ''),
+		        created_at, updated_at
 		 FROM organizations WHERE id = $1`, id,
 	).Scan(
 		&o.ID, &o.Name, &o.Slug, &o.APIKeyHash, &o.Status,
 		&o.PublicBackendURL, &o.PublicGatewayURL, &o.StatusReason,
-		&o.StatusUpdatedAt, &o.StatusUpdatedBy, &o.CreatedAt, &o.UpdatedAt,
+		&o.StatusUpdatedAt, &o.StatusUpdatedBy, &o.PromptOverride, &o.CreatedAt, &o.UpdatedAt,
 	)
 	if err == sql.ErrNoRows {
 		return nil, nil

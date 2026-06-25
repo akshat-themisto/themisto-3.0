@@ -182,6 +182,34 @@ func validate(cfg *domain.AgentConfig) error {
 		}
 	}
 
+	cfg.PromptEnforcementMode = strings.ToLower(strings.TrimSpace(cfg.PromptEnforcementMode))
+	switch cfg.PromptEnforcementMode {
+	case domain.PromptEnforcementModeMonitor, domain.PromptEnforcementModeAlert, domain.PromptEnforcementModeEnforce:
+	case "":
+	default:
+		errs = append(errs, errors.New("prompt_enforcement_mode must be monitor, alert, or enforce"))
+	}
+	cfg.PromptEnforcementOverride = strings.ToLower(strings.TrimSpace(cfg.PromptEnforcementOverride))
+	switch cfg.PromptEnforcementOverride {
+	case "", domain.PromptEnforcementModeMonitor, domain.PromptEnforcementModeAlert, domain.PromptEnforcementModeEnforce:
+	default:
+		errs = append(errs, errors.New("prompt_enforcement_override must be empty, monitor, alert, or enforce"))
+	}
+	seenSurfaces := map[domain.CaptureSurface]bool{}
+	surfaces := make([]domain.CaptureSurface, 0, len(cfg.PromptFailClosedSurfaces))
+	for _, surface := range cfg.PromptFailClosedSurfaces {
+		if !surface.Valid() {
+			errs = append(errs, fmt.Errorf("prompt_fail_closed_surfaces contains invalid surface %q", surface))
+			continue
+		}
+		if seenSurfaces[surface] {
+			continue
+		}
+		seenSurfaces[surface] = true
+		surfaces = append(surfaces, surface)
+	}
+	cfg.PromptFailClosedSurfaces = surfaces
+
 	if cfg.MaxConcurrentConns != 0 {
 		if cfg.MaxConcurrentConns < 1 || cfg.MaxConcurrentConns > 65535 {
 			errs = append(errs, errors.New("max_concurrent_conns must be between 1 and 65535"))

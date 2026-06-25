@@ -3,6 +3,10 @@
   const API_BASE = 'http://127.0.0.1:17175';
   const MAX_PROMPT_CHARS = 120000;
   const EVALUATE_TIMEOUT_MS = 20000;
+  const STATUS_TIMEOUT_MS = 2500;
+  const EXTENSION_VERSION = '1.0.1';
+  const ENFORCEMENT_CACHE_KEY = 'themisto_prompt_enforcement_mode';
+  const VALID_ENFORCEMENT_MODES = new Set(['monitor', 'alert', 'enforce']);
   const SUPPORT_HOSTS = [
     'claude.ai',
     'chatgpt.com',
@@ -20,9 +24,10 @@
   }
 
   let evaluationInFlight = false;
+  let cachedEnforcementMode = null;
   window.__themistoPromptCapture = {
     loaded: true,
-    version: '1.0.1',
+    version: EXTENSION_VERSION,
     surface: SURFACE,
     apiBase: API_BASE,
   };
@@ -206,17 +211,89 @@
     }, 4600);
   }
 
-  async function postJSON(path, payload, timeoutMs) {
+  async function storageGet(key) {
+    try {
+      const items = await browser.storage.local.get(key);
+      return items ? items[key] : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function storageSet(key, value) {
+    try {
+      await browser.storage.local.set({ [key]: value });
+    } catch (_) {
+      // Best effort only.
+    }
+  }
+
+  async function getCachedEnforcementMode() {
+    if (cachedEnforcementMode) {
+      return cachedEnforcementMode;
+    }
+    const stored = await storageGet(ENFORCEMENT_CACHE_KEY);
+    cachedEnforcementMode = VALID_ENFORCEMENT_MODES.has(stored) ? stored : 'alert';
+    return cachedEnforcementMode;
+  }
+
+  async function setCachedEnforcementMode(mode) {
+    if (!VALID_ENFORCEMENT_MODES.has(mode)) {
+      return;
+    }
+    cachedEnforcementMode = mode;
+    await storageSet(ENFORCEMENT_CACHE_KEY, mode);
+  }
+
+  function enforcementModeFromPayload(payload) {
+    if (!payload || typeof payload !== 'object') {
+      return '';
+    }
+    const mode = payload.effective_enforcement_mode || payload.enforcement_mode || '';
+    return VALID_ENFORCEMENT_MODES.has(mode) ? mode : '';
+  }
+
+  async function cacheEnforcementMode(payload) {
+    const mode = enforcementModeFromPayload(payload);
+    if (mode) {
+      await setCachedEnforcementMode(mode);
+    }
+  }
+
+  async function postJSON(path, payload, timeoutMs, method = 'POST') {
     const resp = await browser.runtime.sendMessage({
       type: 'themisto_fetch',
       url: API_BASE + path,
-      body: JSON.stringify(payload),
+      body: method === 'GET' || payload === undefined || payload === null ? undefined : JSON.stringify(payload),
       timeoutMs,
+      method,
     });
     if (resp && resp.error) {
       throw new Error(resp.error);
     }
     return resp.data;
+  }
+
+  async function refreshPromptStatus() {
+    try {
+      const status = await postJSON('/v1/prompt/status', null, STATUS_TIMEOUT_MS, 'GET');
+      await cacheEnforcementMode(status);
+      return status;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function reportAdapterHeartbeat(state) {
+    try {
+      await postJSON('/v1/prompt/adapter-heartbeat', {
+        surface: SURFACE,
+        state: state || 'unknown',
+        adapter_version: EXTENSION_VERSION,
+      }, STATUS_TIMEOUT_MS);
+    } catch (_) {
+      // Best effort only.
+    }
   }
 
   async function reportOutcome(result, outcome, errorText) {
@@ -253,9 +330,11 @@
       vendor: inferVendor(),
       service_category: 'ai_llm',
       protocol: 'http',
-      adapter_version: '1.0.0',
+      adapter_version: EXTENSION_VERSION,
     };
-    return await postJSON('/v1/prompt/evaluate', payload, EVALUATE_TIMEOUT_MS);
+    const result = await postJSON('/v1/prompt/evaluate', payload, EVALUATE_TIMEOUT_MS);
+    await cacheEnforcementMode(result);
+    return result;
   }
 
   function markBypassForm(form) {
@@ -408,7 +487,14 @@
     try {
       result = await evaluatePrompt(promptText);
     } catch (err) {
-      showBanner('warn', 'Prompt evaluator unavailable. Send allowed in degraded fail-open mode.');
+      const mode = await getCachedEnforcementMode();
+      if (mode === 'enforce') {
+        showBanner('block', 'Prompt protection is unavailable. Sending is blocked until Themisto reconnects or policy is changed.');
+        await reportAdapterHeartbeat('hard_block');
+        evaluationInFlight = false;
+        return;
+      }
+      showBanner('warn', 'Prompt evaluator unavailable. Send allowed in degraded alert mode.');
       await reportOutcome(null, 'degraded_fail_open', String(err));
       resumeSend(action);
       evaluationInFlight = false;
@@ -541,4 +627,14 @@
   document.addEventListener('keydown', (event) => {
     void processKeydown(event);
   }, true);
+
+  if (isSupportedRoute()) {
+    void getCachedEnforcementMode();
+    void refreshPromptStatus();
+    void reportAdapterHeartbeat('unknown');
+    window.setInterval(() => {
+      void refreshPromptStatus();
+      void reportAdapterHeartbeat('unknown');
+    }, 60000);
+  }
 })();

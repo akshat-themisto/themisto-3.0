@@ -3,15 +3,14 @@ import { useSearchParams } from 'react-router-dom';
 import { api } from '../api/client';
 import { useAuth } from '../context/AuthContext';
 import { useToast } from '../context/ToastContext';
-import { AlertTriangle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Code, Eye, Key, Shield, Tag } from 'lucide-react';
+import { AlertTriangle, ChevronLeft, ChevronRight, ChevronsLeft, ChevronsRight, Code, Eye, FileText, Key, Save, Shield, Tag, X } from 'lucide-react';
 
 const DLP_MODE_RULE_NAME = 'Quick: Corporate DLP Baseline';
 const DLP_MODE_RULE_PRIORITY = 6;
-const ACCENT_COLOR = '#f5f5f5';
 const ACCENT_SOFT = '#d8d8df';
-const WARNING_COLOR = '#c9c9d1';
-const DANGER_COLOR = '#ff7a70';
-const SUCCESS_COLOR = '#74c89e';
+const WARNING_COLOR = '#d4d4d8';
+const DANGER_COLOR = '#f5f5f5';
+const SUCCESS_COLOR = '#f5f5f5';
 const MUTED_COLOR = '#8b98aa';
 
 const MATCH_TYPE_ICONS = {
@@ -90,10 +89,10 @@ function MatchTypeBadge({ type }) {
 function OutcomeBadge({ action }) {
     const value = (action || 'alert').toLowerCase();
     if (value === 'block') {
-        return <span className="badge" style={{ background: 'rgba(242,145,118,0.14)', borderColor: 'rgba(242,145,118,0.32)', color: DANGER_COLOR }}>Blocked</span>;
+        return <span className="badge badge-strong">Blocked</span>;
     }
     if (value === 'alert') {
-        return <span className="badge" style={{ background: 'rgba(223,182,105,0.14)', borderColor: 'rgba(223,182,105,0.3)', color: WARNING_COLOR }}>Alerted</span>;
+        return <span className="badge">Alerted</span>;
     }
     return <span className="badge">{value}</span>;
 }
@@ -107,9 +106,9 @@ function PromptStatusBadge({ hasRequestBody }) {
                 gap: 6,
                 padding: '4px 9px',
                 borderRadius: 999,
-                background: 'rgba(116,200,158,0.14)',
+                background: 'rgba(255,255,255,0.08)',
                 color: SUCCESS_COLOR,
-                border: '1px solid rgba(116,200,158,0.3)',
+                border: '1px solid rgba(255,255,255,0.24)',
                 fontSize: 11,
                 fontWeight: 600,
             }}>
@@ -136,97 +135,127 @@ function PromptStatusBadge({ hasRequestBody }) {
     );
 }
 
-function PromptModal({ event, data, loading, error, onClose }) {
+function ReviewBadge({ status }) {
+    const value = normalize(status) || 'unreviewed';
+    const label = {
+        unreviewed: 'Unreviewed',
+        reviewed: 'Reviewed',
+        false_positive: 'False Positive',
+        escalated: 'Escalated',
+    }[value] || value;
+    const color = {
+        unreviewed: MUTED_COLOR,
+        reviewed: SUCCESS_COLOR,
+        false_positive: WARNING_COLOR,
+        escalated: DANGER_COLOR,
+    }[value] || MUTED_COLOR;
+    return <span className="badge" style={{ color }}>{label}</span>;
+}
+
+function EventDetailPanel({
+    event,
+    data,
+    loading,
+    error,
+    isAdmin,
+    reviewStatus,
+    reviewNote,
+    reviewSaving,
+    onReviewStatusChange,
+    onReviewNoteChange,
+    onSaveReview,
+    onLoadBody,
+    onClose,
+}) {
     if (!event) return null;
 
     return (
-        <div style={{
-            position: 'fixed',
-            inset: 0,
-            background: 'rgba(5, 5, 5, 0.82)',
-            zIndex: 2000,
-            display: 'flex',
-            alignItems: 'center',
-            justifyContent: 'center',
-            padding: 18,
-            backdropFilter: 'blur(2px)',
-        }}>
-            <div style={{
-                width: 'min(1040px, 96vw)',
-                maxHeight: '92vh',
-                overflow: 'hidden',
-                borderRadius: 14,
-                border: '1px solid var(--border-light)',
-                background: 'linear-gradient(180deg, #171a21 0%, #11151b 100%)',
-                boxShadow: '0 25px 80px rgba(0,0,0,0.55)',
-                display: 'flex',
-                flexDirection: 'column',
-            }}>
-                <div style={{
-                    display: 'flex',
-                    alignItems: 'center',
-                    justifyContent: 'space-between',
-                    padding: '14px 16px',
-                    borderBottom: '1px solid var(--border)',
-                    background: 'rgba(255,255,255,0.02)',
-                }}>
+        <div className="dlp-detail-overlay" onClick={onClose}>
+            <aside className="dlp-detail-panel" onClick={(e) => e.stopPropagation()}>
+                <div className="dlp-detail-header">
                     <div>
-                        <div style={{ fontSize: 15, fontWeight: 700, color: 'var(--text-primary)' }}>Captured Prompt Body</div>
-                        <div style={{ marginTop: 4, fontSize: 12, color: 'var(--text-muted)' }}>
-                            {event.device_name || event.device_id?.substring(0, 8) || 'Unknown device'}  {event.request_host}  {event.source_app || 'unknown app'}
+                        <div className="page-kicker">Security Review</div>
+                        <h2 className="modal-title">{event.request_host}</h2>
+                        <div className="dlp-detail-subtitle">
+                            {event.device_name || event.device_id?.substring(0, 8) || 'Unknown device'} / {event.source_app || event.ai_vendor || 'unknown app'}
                         </div>
                     </div>
-                    <button className="btn btn-secondary" onClick={onClose}>Close</button>
+                    <button className="policy-modal-close" type="button" onClick={onClose} aria-label="Close event details">
+                        <X size={16} />
+                    </button>
                 </div>
 
-                <div style={{ padding: 16, overflow: 'auto' }}>
-                    {loading ? (
-                        <div style={{ color: 'var(--text-muted)' }}>Loading prompt...</div>
-                    ) : error ? (
-                        <div style={{
-                            color: '#ffd0c6',
-                            background: 'rgba(242,145,118,0.12)',
-                            border: '1px solid rgba(242,145,118,0.28)',
-                            borderRadius: 10,
-                            padding: 12,
-                            fontSize: 13,
-                        }}>
-                            {error}
+                <div className="dlp-detail-body">
+                    <section className="dlp-detail-section">
+                        <h3>Final Policy Outcome</h3>
+                        <div className="dlp-detail-grid">
+                            <span>Outcome</span><strong><OutcomeBadge action={event.action_taken} /></strong>
+                            <span>Severity</span><strong>{String(event.severity || 'low').toUpperCase()}</strong>
+                            <span>Review</span><strong><ReviewBadge status={event.review_status} /></strong>
+                            <span>Time</span><strong>{event.timestamp ? new Date(event.timestamp).toLocaleString() : '-'}</strong>
                         </div>
-                    ) : (
-                        <>
-                            <div style={{
-                                marginBottom: 12,
-                                color: 'var(--text-muted)',
-                                fontSize: 12,
-                                display: 'flex',
-                                gap: 10,
-                                flexWrap: 'wrap',
-                            }}>
-                                <span>Event ID: {data?.id}</span>
-                                <span>Device: {data?.device_name || data?.device_id?.substring(0, 8) || 'Unknown device'}</span>
-                                <span>Time: {data?.timestamp ? new Date(data.timestamp).toLocaleString() : '-'}</span>
-                                <span>{data?.truncated ? 'Truncated at capture limit' : 'Full capture available'}</span>
-                            </div>
+                    </section>
 
-                            <pre style={{
-                                margin: 0,
-                                whiteSpace: 'pre-wrap',
-                                wordBreak: 'break-word',
-                                background: '#101319',
-                                border: '1px solid var(--border)',
-                                borderRadius: 10,
-                                padding: 14,
-                                color: 'var(--text-secondary)',
-                                fontSize: 12,
-                                lineHeight: 1.52,
-                            }}>
-                                {data?.body || '(No body stored for this event)'}
-                            </pre>
-                        </>
+                    <section className="dlp-detail-section">
+                        <h3>Detector</h3>
+                        <div className="dlp-detection-badges">
+                            {(event.match_types || []).map((t) => <MatchTypeBadge key={t} type={t} />)}
+                        </div>
+                        <p>{(event.matched_patterns || []).join(', ') || 'No pattern details'}</p>
+                    </section>
+
+                    <section className="dlp-detail-section">
+                        <h3>Semantic Context</h3>
+                        <DecisionSourceBadge event={event} />
+                        <p>{formatReason(event)}</p>
+                    </section>
+
+                    {isAdmin && (
+                        <section className="dlp-detail-section">
+                            <h3>Review</h3>
+                            <div className="dlp-review-form">
+                                <select className="form-select" value={reviewStatus} onChange={(e) => onReviewStatusChange(e.target.value)}>
+                                    <option value="unreviewed">Unreviewed</option>
+                                    <option value="reviewed">Reviewed</option>
+                                    <option value="false_positive">False Positive</option>
+                                    <option value="escalated">Escalated</option>
+                                </select>
+                                <textarea
+                                    className="form-input"
+                                    placeholder="Add a short investigation note"
+                                    value={reviewNote}
+                                    onChange={(e) => onReviewNoteChange(e.target.value)}
+                                />
+                                <button className="btn btn-primary" onClick={onSaveReview} disabled={reviewSaving}>
+                                    <Save size={14} /> {reviewSaving ? 'Saving...' : 'Save Review'}
+                                </button>
+                            </div>
+                        </section>
                     )}
+
+                    <section className="dlp-detail-section">
+                        <h3>Captured Prompt</h3>
+                        {!event.has_request_body ? (
+                            <p>No prompt body was stored for this event.</p>
+                        ) : !data && !loading ? (
+                            <button className="btn" onClick={onLoadBody}>
+                                <FileText size={14} /> Load Captured Body
+                            </button>
+                        ) : loading ? (
+                            <div style={{ color: 'var(--text-muted)' }}>Loading prompt...</div>
+                        ) : error ? (
+                            <div className="dlp-inline-error">{error}</div>
+                        ) : (
+                            <>
+                                <div className="dlp-detail-subtitle">
+                                    Event ID: {data?.id} / {data?.truncated ? 'Truncated at capture limit' : 'Full capture available'}
+                                </div>
+                                <pre className="dlp-body-preview">{data?.body || '(No body stored for this event)'}</pre>
+                            </>
+                        )}
+                    </section>
                 </div>
-            </div>
+            </aside>
         </div>
     );
 }
@@ -279,8 +308,8 @@ function DecisionSourceBadge({ event }) {
     return (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 5, minWidth: 132 }}>
             <span className="badge" style={{
-                background: 'rgba(116,200,158,0.12)',
-                borderColor: 'rgba(116,200,158,0.28)',
+                background: 'rgba(255,255,255,0.08)',
+                borderColor: 'rgba(255,255,255,0.22)',
                 color: SUCCESS_COLOR,
                 width: 'fit-content',
             }}>
@@ -308,12 +337,25 @@ export default function DLPEvents() {
     const [pageSize, setPageSize] = useState(25);
     const [loading, setLoading] = useState(true);
     const [loadError, setLoadError] = useState('');
-    const [filters, setFilters] = useState({ host: '', ai_vendor: '', match_type: '' });
+    const [filters, setFilters] = useState({
+        host: '',
+        ai_vendor: '',
+        match_type: '',
+        severity: '',
+        action_taken: '',
+        review_status: '',
+        semantic_source: '',
+        sort: 'timestamp',
+        order: 'desc',
+    });
 
     const [selectedEvent, setSelectedEvent] = useState(null);
     const [promptData, setPromptData] = useState(null);
     const [promptLoading, setPromptLoading] = useState(false);
     const [promptError, setPromptError] = useState('');
+    const [reviewStatus, setReviewStatus] = useState('unreviewed');
+    const [reviewNote, setReviewNote] = useState('');
+    const [reviewSaving, setReviewSaving] = useState(false);
 
     const [modeAction, setModeAction] = useState('alert');
     const [modeRuleId, setModeRuleId] = useState('');
@@ -397,10 +439,18 @@ export default function DLPEvents() {
         loadModeState();
     }, [loadModeState]);
 
-    const openPrompt = useCallback((event) => {
+    const openDetails = useCallback((event) => {
         if (!event?.id) return;
         setSelectedEvent(event);
         setPromptData(null);
+        setPromptError('');
+        setPromptLoading(false);
+        setReviewStatus(normalize(event.review_status) || 'unreviewed');
+        setReviewNote(event.review_note || '');
+    }, []);
+
+    const loadPromptBody = useCallback((event = selectedEvent) => {
+        if (!event?.id || !event.has_request_body) return;
         setPromptError('');
         setPromptLoading(true);
         api.getDLPEventBody(event.id)
@@ -411,7 +461,27 @@ export default function DLPEvents() {
                 toast.error(message);
             })
             .finally(() => setPromptLoading(false));
-    }, [toast]);
+    }, [selectedEvent, toast]);
+
+    const saveReview = async () => {
+        if (!selectedEvent?.id || reviewSaving) return;
+        setReviewSaving(true);
+        try {
+            const updated = await api.updateDLPEventReview(selectedEvent.id, {
+                review_status: reviewStatus,
+                review_note: reviewNote,
+            });
+            setSelectedEvent(updated);
+            setReviewStatus(normalize(updated.review_status) || 'unreviewed');
+            setReviewNote(updated.review_note || '');
+            setEvents((current) => current.map((event) => Number(event.id) === Number(updated.id) ? updated : event));
+            toast.success('Review saved.');
+        } catch (err) {
+            toast.error(err?.message || 'Failed to save review');
+        } finally {
+            setReviewSaving(false);
+        }
+    };
 
     useEffect(() => {
         const rawID = searchParams.get('event_id');
@@ -422,7 +492,7 @@ export default function DLPEvents() {
 
         const fromPage = events.find((e) => Number(e.id) === eventID);
         if (fromPage) {
-            openPrompt(fromPage);
+            openDetails(fromPage);
             setQueryOpenHandled(rawID);
             setSearchParams({}, { replace: true });
             return;
@@ -432,7 +502,7 @@ export default function DLPEvents() {
         api.getDLPEvent(eventID)
             .then((event) => {
                 if (event?.id) {
-                    openPrompt(event);
+                    openDetails(event);
                 }
             })
             .catch((err) => {
@@ -442,7 +512,7 @@ export default function DLPEvents() {
                 setQueryOpenHandled(rawID);
                 setSearchParams({}, { replace: true });
             });
-    }, [searchParams, queryOpenHandled, events, loading, setSearchParams, toast, openPrompt]);
+    }, [searchParams, queryOpenHandled, events, loading, setSearchParams, toast, openDetails]);
 
     const closePrompt = () => {
         setSelectedEvent(null);
@@ -542,6 +612,59 @@ export default function DLPEvents() {
                             <option value="source_code">Source Code</option>
                             <option value="keyword">Keyword</option>
                         </select>
+                        <select
+                            className="form-select dlp-filter-input"
+                            value={filters.severity}
+                            onChange={(e) => { setFilters((f) => ({ ...f, severity: e.target.value })); setPage(1); }}
+                        >
+                            <option value="">All severities</option>
+                            <option value="critical">Critical</option>
+                            <option value="high">High</option>
+                            <option value="medium">Medium</option>
+                            <option value="low">Low</option>
+                        </select>
+                        <select
+                            className="form-select dlp-filter-input"
+                            value={filters.action_taken}
+                            onChange={(e) => { setFilters((f) => ({ ...f, action_taken: e.target.value })); setPage(1); }}
+                        >
+                            <option value="">All outcomes</option>
+                            <option value="block">Blocked</option>
+                            <option value="alert">Alerted</option>
+                            <option value="redact">Redacted</option>
+                        </select>
+                        <select
+                            className="form-select dlp-filter-input"
+                            value={filters.review_status}
+                            onChange={(e) => { setFilters((f) => ({ ...f, review_status: e.target.value })); setPage(1); }}
+                        >
+                            <option value="">All review states</option>
+                            <option value="unreviewed">Unreviewed</option>
+                            <option value="reviewed">Reviewed</option>
+                            <option value="false_positive">False Positive</option>
+                            <option value="escalated">Escalated</option>
+                        </select>
+                        <input
+                            className="form-input dlp-filter-input"
+                            placeholder="Semantic source"
+                            value={filters.semantic_source}
+                            onChange={(e) => { setFilters((f) => ({ ...f, semantic_source: e.target.value })); setPage(1); }}
+                        />
+                        <select
+                            className="form-select dlp-filter-input"
+                            value={`${filters.sort}:${filters.order}`}
+                            onChange={(e) => {
+                                const [sort, order] = e.target.value.split(':');
+                                setFilters((f) => ({ ...f, sort, order }));
+                                setPage(1);
+                            }}
+                        >
+                            <option value="timestamp:desc">Newest first</option>
+                            <option value="timestamp:asc">Oldest first</option>
+                            <option value="severity:desc">Highest severity</option>
+                            <option value="review_status:asc">Review state</option>
+                            <option value="request_host:asc">Host A-Z</option>
+                        </select>
                     </div>
                 </div>
 
@@ -561,15 +684,27 @@ export default function DLPEvents() {
                             ) : (
                                 <div className="dlp-table-scroll">
                                     <table className="data-table dlp-table">
+                                        <colgroup>
+                                            <col className="dlp-col-time" />
+                                            <col className="dlp-col-device" />
+                                            <col className="dlp-col-destination" />
+                                            <col className="dlp-col-detector" />
+                                            <col className="dlp-col-semantic" />
+                                            <col className="dlp-col-outcome" />
+                                            <col className="dlp-col-severity" />
+                                            <col className="dlp-col-review" />
+                                            {isAdmin && <col className="dlp-col-prompt" />}
+                                        </colgroup>
                                         <thead>
                                             <tr>
                                                 <th>Time</th>
                                                 <th>Device</th>
                                                 <th>Destination</th>
-                                                <th>Detection</th>
-                                                <th>Outcome</th>
-                                                <th>Decision</th>
+                                                <th>Detector</th>
+                                                <th>Semantic Context</th>
+                                                <th>Final Outcome</th>
                                                 <th>Severity</th>
+                                                <th>Review</th>
                                                 {isAdmin && <th>Prompt</th>}
                                             </tr>
                                         </thead>
@@ -595,12 +730,13 @@ export default function DLPEvents() {
                                                                 {(e.matched_patterns || []).join(', ') || 'No pattern details'}
                                                             </span>
                                                         </td>
-                                                        <td><OutcomeBadge action={e.action_taken} /></td>
                                                         <td className="dlp-decision-cell">
                                                             <DecisionSourceBadge event={e} />
                                                             <span className="dlp-why-text" title={formatReason(e)}>{formatReason(e)}</span>
                                                         </td>
+                                                        <td><OutcomeBadge action={e.action_taken} /></td>
                                                         <td className="dlp-severity-cell">{String(e.severity || 'low').toUpperCase()}</td>
+                                                        <td><ReviewBadge status={e.review_status} /></td>
                                                         {isAdmin && (
                                                             <td className="dlp-prompt-column">
                                                                 <div className="dlp-prompt-cell">
@@ -608,10 +744,10 @@ export default function DLPEvents() {
                                                                     {e.id ? (
                                                                         <button
                                                                             className="btn btn-sm"
-                                                                            onClick={() => openPrompt(e)}
+                                                                            onClick={() => openDetails(e)}
                                                                         >
                                                                             <Eye size={14} />
-                                                                            View
+                                                                            Details
                                                                         </button>
                                                                     ) : (
                                                                         <span className="dlp-no-id">No ID</span>
@@ -666,11 +802,19 @@ export default function DLPEvents() {
                 )}
             </div>
 
-            <PromptModal
+            <EventDetailPanel
                 event={selectedEvent}
                 data={promptData}
                 loading={promptLoading}
                 error={promptError}
+                isAdmin={isAdmin}
+                reviewStatus={reviewStatus}
+                reviewNote={reviewNote}
+                reviewSaving={reviewSaving}
+                onReviewStatusChange={setReviewStatus}
+                onReviewNoteChange={setReviewNote}
+                onSaveReview={saveReview}
+                onLoadBody={() => loadPromptBody()}
                 onClose={closePrompt}
             />
         </>

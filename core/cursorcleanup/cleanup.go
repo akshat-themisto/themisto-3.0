@@ -3,7 +3,9 @@
 package cursorcleanup
 
 import (
+	"bytes"
 	"database/sql"
+	"encoding/json"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -388,9 +390,7 @@ func RedactVscdb(dbPath string, patterns []dlp.RedactionPattern) (int, error) {
 			continue
 		}
 		original := value
-		for _, p := range patterns {
-			value = p.Re.ReplaceAllString(value, dlp.Replacement)
-		}
+		value = redactSensitiveText(value, patterns)
 		if value != original {
 			updates = append(updates, rowUpdate{key: key, newValue: value})
 		}
@@ -431,9 +431,7 @@ func RedactTranscriptFile(path string, patterns []dlp.RedactionPattern) (int, er
 
 	text := string(data)
 	original := text
-	for _, p := range patterns {
-		text = p.Re.ReplaceAllString(text, dlp.Replacement)
-	}
+	text = redactSensitiveText(text, patterns)
 	if text == original {
 		return 0, nil
 	}
@@ -450,6 +448,70 @@ func RedactTranscriptFile(path string, patterns []dlp.RedactionPattern) (int, er
 }
 
 // --- Helpers ---
+
+func redactSensitiveText(text string, patterns []dlp.RedactionPattern) string {
+	if redacted, ok := redactJSONText(text, patterns); ok {
+		return redacted
+	}
+	for _, p := range patterns {
+		text = p.Re.ReplaceAllString(text, dlp.Replacement)
+	}
+	return text
+}
+
+func redactJSONText(text string, patterns []dlp.RedactionPattern) (string, bool) {
+	if !json.Valid([]byte(text)) {
+		return "", false
+	}
+	decoder := json.NewDecoder(bytes.NewReader([]byte(text)))
+	decoder.UseNumber()
+	var value interface{}
+	if err := decoder.Decode(&value); err != nil {
+		return "", false
+	}
+	redacted, changed := redactJSONValue(value, patterns)
+	if !changed {
+		return text, true
+	}
+	data, err := json.Marshal(redacted)
+	if err != nil {
+		return "", false
+	}
+	return string(data), true
+}
+
+func redactJSONValue(value interface{}, patterns []dlp.RedactionPattern) (interface{}, bool) {
+	switch v := value.(type) {
+	case string:
+		redacted := v
+		for _, p := range patterns {
+			redacted = p.Re.ReplaceAllString(redacted, dlp.Replacement)
+		}
+		return redacted, redacted != v
+	case []interface{}:
+		changed := false
+		for i, item := range v {
+			next, itemChanged := redactJSONValue(item, patterns)
+			if itemChanged {
+				v[i] = next
+				changed = true
+			}
+		}
+		return v, changed
+	case map[string]interface{}:
+		changed := false
+		for key, item := range v {
+			next, itemChanged := redactJSONValue(item, patterns)
+			if itemChanged {
+				v[key] = next
+				changed = true
+			}
+		}
+		return v, changed
+	default:
+		return value, false
+	}
+}
 
 // SafeExcerpt returns a redacted preview: first 3 + "***" + last 3 chars.
 func SafeExcerpt(text string, loc []int) string {

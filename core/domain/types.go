@@ -60,6 +60,10 @@ type AgentConfig struct {
 	PromptSemanticsBlockThreshold     float64
 	PromptSemanticsAlertThreshold     float64
 	PromptSemanticsAmbiguousThreshold float64
+
+	PromptEnforcementMode     string
+	PromptFailClosedSurfaces  []CaptureSurface
+	PromptEnforcementOverride string
 }
 
 // TLSConfig holds raw TLS material for mTLS connections to the gateway.
@@ -76,9 +80,10 @@ type TLSConfig struct {
 
 // PolicyPayload holds policy data received from the gateway.
 type PolicyPayload struct {
-	Version      string             `json:"version"`
-	Rules        []PolicyRule       `json:"rules"`
-	Interception PolicyInterception `json:"interception"`
+	Version                   string             `json:"version"`
+	Rules                     []PolicyRule       `json:"rules"`
+	Interception              PolicyInterception `json:"interception"`
+	PromptEnforcementOverride string             `json:"prompt_enforcement_override,omitempty"`
 }
 
 // PolicyInterception holds managed HTTPS interception settings synced from gateway.
@@ -351,6 +356,21 @@ const (
 	CaptureSurfaceGitHubCopilot   CaptureSurface = "github_copilot"
 )
 
+const (
+	PromptEnforcementModeMonitor = "monitor"
+	PromptEnforcementModeAlert   = "alert"
+	PromptEnforcementModeEnforce = "enforce"
+)
+
+const (
+	SurfaceEnforcementHardBlock   = "hard_block"
+	SurfaceEnforcementAlertOnly   = "alert_only"
+	SurfaceEnforcementWouldBlock  = "would_block"
+	SurfaceEnforcementMonitor     = "monitor_only"
+	SurfaceEnforcementUnprotected = "unprotected"
+	SurfaceEnforcementUnknown     = "unknown"
+)
+
 func (s CaptureSurface) Valid() bool {
 	switch s {
 	case CaptureSurfaceBrowserChromium, CaptureSurfaceBrowserFirefox, CaptureSurfaceBrowserSafari, CaptureSurfaceDesktop, CaptureSurfaceClaudeCode, CaptureSurfaceCursor, CaptureSurfaceWindsurf, CaptureSurfaceGitHubCopilot:
@@ -398,19 +418,33 @@ type PromptEvaluationRequest struct {
 
 // PromptEvaluationResponse is returned to endpoint adapters for enforcement UX.
 type PromptEvaluationResponse struct {
-	EvaluationID  string                `json:"evaluation_id"`
-	Decision      Decision              `json:"decision"`
-	PolicyRuleID  string                `json:"policy_rule_id,omitempty"`
-	ReasonCode    string                `json:"reason_code,omitempty"`
-	Reason        string                `json:"reason,omitempty"`
-	Message       string                `json:"message"`
-	Outcome       CaptureOutcome        `json:"outcome"`
-	MatchCount    int                   `json:"match_count"`
-	MatchTypes    []string              `json:"match_types,omitempty"`
-	Severity      string                `json:"severity,omitempty"`
-	Degraded      bool                  `json:"degraded"`
-	DegradedCause string                `json:"degraded_cause,omitempty"`
-	Semantic      *PromptSemanticResult `json:"semantic,omitempty"`
+	EvaluationID             string                `json:"evaluation_id"`
+	Decision                 Decision              `json:"decision"`
+	PolicyRuleID             string                `json:"policy_rule_id,omitempty"`
+	ReasonCode               string                `json:"reason_code,omitempty"`
+	Reason                   string                `json:"reason,omitempty"`
+	Message                  string                `json:"message"`
+	Outcome                  CaptureOutcome        `json:"outcome"`
+	MatchCount               int                   `json:"match_count"`
+	MatchTypes               []string              `json:"match_types,omitempty"`
+	Severity                 string                `json:"severity,omitempty"`
+	Degraded                 bool                  `json:"degraded"`
+	DegradedCause            string                `json:"degraded_cause,omitempty"`
+	Semantic                 *PromptSemanticResult `json:"semantic,omitempty"`
+	EnforcementMode          string                `json:"enforcement_mode,omitempty"`
+	EffectiveEnforcementMode string                `json:"effective_enforcement_mode,omitempty"`
+	SurfaceEnforcement       string                `json:"surface_enforcement,omitempty"`
+}
+
+type PromptStatusResponse struct {
+	OK                       bool                      `json:"ok"`
+	EnforcementMode          string                    `json:"enforcement_mode"`
+	EffectiveEnforcementMode string                    `json:"effective_enforcement_mode"`
+	FailClosedSurfaces       []CaptureSurface          `json:"fail_closed_surfaces"`
+	SurfaceStates            map[CaptureSurface]string `json:"surface_states"`
+	PolicyVersion            string                    `json:"policy_version,omitempty"`
+	ClassifierHealthy        bool                      `json:"classifier_healthy"`
+	ClassifierRequired       bool                      `json:"classifier_required"`
 }
 
 // PromptOutcomeRequest is sent by endpoint adapters after enforcement action.

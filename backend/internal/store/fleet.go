@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"encoding/json"
+	"math"
+	"strings"
 	"time"
 )
 
@@ -15,6 +17,8 @@ const (
 type FleetDevice struct {
 	DeviceID             string                 `json:"device_id"`
 	DeviceName           string                 `json:"device_name"`
+	Hostname             string                 `json:"hostname,omitempty"`
+	AgentUser            string                 `json:"agent_user,omitempty"`
 	OrganizationID       string                 `json:"organization_id"`
 	OrganizationName     string                 `json:"organization_name"`
 	OrganizationStatus   string                 `json:"organization_status"`
@@ -35,6 +39,14 @@ type FleetDevice struct {
 	ProxyIntegrity       string                 `json:"proxy_integrity"`
 	PromptCapture        string                 `json:"prompt_capture"`
 	SemanticClassifier   string                 `json:"semantic_classifier"`
+	BrowserProtection    string                 `json:"browser_protection,omitempty"`
+	PolicyFresh          bool                   `json:"policy_fresh"`
+	ClassifierRequired   bool                   `json:"classifier_required"`
+	ClassifierHealthy    bool                   `json:"classifier_healthy"`
+	PromptEnforcement    string                 `json:"prompt_enforcement_mode,omitempty"`
+	EffectiveEnforcement string                 `json:"effective_prompt_enforcement_mode,omitempty"`
+	ProtectionState      string                 `json:"protection_state,omitempty"`
+	SurfaceStates        map[string]string      `json:"surface_states,omitempty"`
 	ServiceStatus        string                 `json:"service_status"`
 	PolicyVersion        string                 `json:"policy_version"`
 	UptimeSeconds        int64                  `json:"uptime_seconds"`
@@ -52,6 +64,17 @@ type FleetSummary struct {
 	SuspectedTamper  int `json:"suspected_tamper"`
 	ManagedInactive  int `json:"managed_inactive"`
 	ClassifierIssues int `json:"classifier_issues"`
+	Protected        int `json:"protected"`
+	Unprotected      int `json:"unprotected"`
+	MonitorOnly      int `json:"monitor_only"`
+}
+
+type FleetFilter struct {
+	OrgID  string
+	Status string
+	Query  string
+	Page   int
+	Limit  int
 }
 
 type FleetSignal struct {
@@ -67,26 +90,37 @@ type FleetSignal struct {
 }
 
 type fleetHeartbeatData struct {
-	AgentVersion       string `json:"agent_version"`
-	GatewayConnected   bool   `json:"gateway_connected"`
-	ProxyListenerAlive bool   `json:"proxy_listener_alive"`
-	ProxyIntegrity     string `json:"proxy_integrity"`
-	PromptCapture      string `json:"prompt_capture"`
-	SemanticClassifier string `json:"semantic_classifier"`
-	ServiceStatus      string `json:"service_status"`
-	PolicyVersion      string `json:"policy_version"`
-	UptimeSeconds      int64  `json:"uptime_seconds"`
+	AgentVersion       string            `json:"agent_version"`
+	GatewayConnected   bool              `json:"gateway_connected"`
+	ProxyListenerAlive bool              `json:"proxy_listener_alive"`
+	ProxyIntegrity     string            `json:"proxy_integrity"`
+	PromptCapture      string            `json:"prompt_capture"`
+	SemanticClassifier string            `json:"semantic_classifier"`
+	BrowserProtection  string            `json:"browser_protection"`
+	PolicyFresh        bool              `json:"policy_fresh"`
+	ClassifierRequired bool              `json:"classifier_required"`
+	ClassifierHealthy  bool              `json:"classifier_healthy"`
+	PromptEnforcement  string            `json:"prompt_enforcement_mode"`
+	EffectiveEnforce   string            `json:"effective_prompt_enforcement_mode"`
+	ProtectionState    string            `json:"protection_state"`
+	ServiceStatus      string            `json:"service_status"`
+	PolicyVersion      string            `json:"policy_version"`
+	UptimeSeconds      int64             `json:"uptime_seconds"`
+	Hostname           string            `json:"hostname"`
+	AgentUser          string            `json:"agent_user"`
+	SurfaceStates      map[string]string `json:"surface_states"`
 }
 
 func (s *Store) ListOperatorFleet(ctx context.Context, now time.Time) ([]FleetDevice, FleetSummary, error) {
-	return s.listFleet(ctx, "", now)
+	devices, summary, _, err := s.listFleet(ctx, FleetFilter{}, now)
+	return devices, summary, err
 }
 
-func (s *Store) ListFleet(ctx context.Context, orgID string, now time.Time) ([]FleetDevice, FleetSummary, error) {
-	return s.listFleet(ctx, orgID, now)
+func (s *Store) ListFleet(ctx context.Context, filter FleetFilter, now time.Time) ([]FleetDevice, FleetSummary, int, error) {
+	return s.listFleet(ctx, filter, now)
 }
 
-func (s *Store) listFleet(ctx context.Context, orgID string, now time.Time) ([]FleetDevice, FleetSummary, error) {
+func (s *Store) listFleet(ctx context.Context, filter FleetFilter, now time.Time) ([]FleetDevice, FleetSummary, int, error) {
 	rows, err := s.DB.QueryContext(ctx, `
 		SELECT
 			d.id::text, d.device_name, o.id::text, o.name, o.status,
@@ -134,13 +168,13 @@ func (s *Store) listFleet(ctx context.Context, orgID string, now time.Time) ([]F
 			WHERE device_id = d.id::text
 		) traffic ON true
 		WHERE ($1 = '' OR d.org_id::text = $1)
-		ORDER BY o.name, d.device_name`, orgID)
+		ORDER BY o.name, d.device_name`, strings.TrimSpace(filter.OrgID))
 	if err != nil {
-		return nil, FleetSummary{}, err
+		return nil, FleetSummary{}, 0, err
 	}
 	defer rows.Close()
 
-	devices := []FleetDevice{}
+	allDevices := []FleetDevice{}
 	var summary FleetSummary
 	for rows.Next() {
 		var (
@@ -160,7 +194,7 @@ func (s *Store) listFleet(ctx context.Context, orgID string, now time.Time) ([]F
 			&lastHealthy, &lastStopped, &lastTraffic, &device.LatestEventType,
 			&device.LatestEventSeverity, &latestRaw, &heartbeatRaw,
 		); err != nil {
-			return nil, FleetSummary{}, err
+			return nil, FleetSummary{}, 0, err
 		}
 		device.CertificateStatus = certStatus.String
 		device.CertificateExpiresAt = nullTimePtr(certExpiry)
@@ -181,14 +215,31 @@ func (s *Store) listFleet(ctx context.Context, orgID string, now time.Time) ([]F
 		device.ProxyIntegrity = heartbeat.ProxyIntegrity
 		device.PromptCapture = heartbeat.PromptCapture
 		device.SemanticClassifier = heartbeat.SemanticClassifier
+		device.BrowserProtection = heartbeat.BrowserProtection
+		device.PolicyFresh = heartbeat.PolicyFresh
+		device.ClassifierRequired = heartbeat.ClassifierRequired
+		device.ClassifierHealthy = heartbeat.ClassifierHealthy
+		device.PromptEnforcement = heartbeat.PromptEnforcement
+		device.EffectiveEnforcement = heartbeat.EffectiveEnforce
+		device.ProtectionState = heartbeat.ProtectionState
+		device.SurfaceStates = heartbeat.SurfaceStates
 		device.ServiceStatus = heartbeat.ServiceStatus
 		device.PolicyVersion = heartbeat.PolicyVersion
 		device.UptimeSeconds = heartbeat.UptimeSeconds
+		device.Hostname = heartbeat.Hostname
+		device.AgentUser = heartbeat.AgentUser
 		device.Connectivity, device.HealthReason = deriveFleetConnectivity(device, now)
 		updateFleetSummary(&summary, device)
-		devices = append(devices, device)
+		allDevices = append(allDevices, device)
 	}
-	return devices, summary, rows.Err()
+	if err := rows.Err(); err != nil {
+		return nil, FleetSummary{}, 0, err
+	}
+
+	filtered := filterFleetDevices(allDevices, filter)
+	total := len(filtered)
+	filtered = paginateFleetDevices(filtered, filter.Page, filter.Limit)
+	return filtered, summary, total, nil
 }
 
 func (s *Store) ListOperatorFleetSignals(ctx context.Context, limit int) ([]FleetSignal, error) {
@@ -251,7 +302,7 @@ func deriveFleetConnectivity(device FleetDevice, now time.Time) (string, string)
 	if age <= fleetConnectedWindow {
 		if !device.GatewayConnected || !device.ProxyListenerAlive || device.ProxyIntegrity != "ok" ||
 			device.PromptCapture != "healthy" || classifierUnhealthy(device.SemanticClassifier) ||
-			serviceUnhealthy(device.ServiceStatus) {
+			serviceUnhealthy(device.ServiceStatus) || protectionDegraded(device.ProtectionState) {
 			return "degraded", "Recent heartbeat reports a component problem"
 		}
 		return "connected", "Operational heartbeat is current"
@@ -268,6 +319,17 @@ func classifierUnhealthy(status string) bool {
 
 func serviceUnhealthy(status string) bool {
 	return status != "" && status != "running"
+}
+
+func protectionDegraded(state string) bool {
+	switch state {
+	case "", "protected":
+		return false
+	case "monitor_only", "unprotected", "degraded", "tampered":
+		return true
+	default:
+		return true
+	}
 }
 
 func updateFleetSummary(summary *FleetSummary, device FleetDevice) {
@@ -289,6 +351,77 @@ func updateFleetSummary(summary *FleetSummary, device FleetDevice) {
 	if classifierUnhealthy(device.SemanticClassifier) {
 		summary.ClassifierIssues++
 	}
+	switch device.ProtectionState {
+	case "protected":
+		summary.Protected++
+	case "monitor_only":
+		summary.MonitorOnly++
+	case "unprotected", "degraded", "tampered":
+		summary.Unprotected++
+	}
+}
+
+func filterFleetDevices(devices []FleetDevice, filter FleetFilter) []FleetDevice {
+	status := strings.TrimSpace(strings.ToLower(filter.Status))
+	query := strings.TrimSpace(strings.ToLower(filter.Query))
+	if status == "" && query == "" {
+		return devices
+	}
+	out := make([]FleetDevice, 0, len(devices))
+	for _, device := range devices {
+		if status != "" && strings.ToLower(device.Connectivity) != status {
+			continue
+		}
+		if query != "" && !fleetDeviceMatchesQuery(device, query) {
+			continue
+		}
+		out = append(out, device)
+	}
+	return out
+}
+
+func fleetDeviceMatchesQuery(device FleetDevice, query string) bool {
+	values := []string{
+		device.DeviceName,
+		device.DeviceID,
+		device.Hostname,
+		device.AgentUser,
+		device.OS,
+		device.AgentVersion,
+		device.PolicyVersion,
+		device.OrganizationName,
+	}
+	for _, value := range values {
+		if strings.Contains(strings.ToLower(value), query) {
+			return true
+		}
+	}
+	return false
+}
+
+func paginateFleetDevices(devices []FleetDevice, page, limit int) []FleetDevice {
+	if limit <= 0 || limit > 100 {
+		limit = 25
+	}
+	if page <= 0 {
+		page = 1
+	}
+	if len(devices) == 0 {
+		return []FleetDevice{}
+	}
+	start := (page - 1) * limit
+	if start >= len(devices) {
+		lastPage := int(math.Ceil(float64(len(devices)) / float64(limit)))
+		if lastPage < 1 {
+			lastPage = 1
+		}
+		start = (lastPage - 1) * limit
+	}
+	end := start + limit
+	if end > len(devices) {
+		end = len(devices)
+	}
+	return devices[start:end]
 }
 
 func nullTimePtr(value sql.NullTime) *time.Time {

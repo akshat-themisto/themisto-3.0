@@ -27,4 +27,11 @@ func TestBuildAgentConfig(t *testing.T) {
 	assertEqual("listen_addr", cfg.ListenAddr, "127.0.0.1:8080")
 	assertEqual("default_decision", cfg.DefaultDecision, "bypass")
 	assertEqual("telemetry_flush_interval", cfg.TelemetryFlushInterval, "5s")
+	if !cfg.PromptCaptureEnabled || !cfg.PromptSemanticsEnabled {
+		t.Fatalf("prompt capture/semantics should be enabled in generated enterprise config: %#v", cfg)
+	}
+	assertEqual("prompt_enforcement_mode", cfg.PromptEnforcementMode, "enforce")
+	if got, want := len(cfg.PromptFailClosed), 5; got != want {
+		t.Fatalf("prompt_fail_closed_surfaces length: got %d want %d", got, want)
+	}
 }

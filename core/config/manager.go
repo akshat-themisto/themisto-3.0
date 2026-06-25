@@ -161,6 +161,10 @@ type jsonAgentConfig struct {
 	PromptSemanticsBlockThreshold     float64      `json:"prompt_semantics_block_threshold"`
 	PromptSemanticsAlertThreshold     float64      `json:"prompt_semantics_alert_threshold"`
 	PromptSemanticsAmbiguousThreshold float64      `json:"prompt_semantics_ambiguous_threshold"`
+
+	PromptEnforcementMode     string                  `json:"prompt_enforcement_mode"`
+	PromptFailClosedSurfaces  []domain.CaptureSurface `json:"prompt_fail_closed_surfaces"`
+	PromptEnforcementOverride string                  `json:"prompt_enforcement_override"`
 }
 
 func (j *jsonAgentConfig) toDomain() *domain.AgentConfig {
@@ -203,6 +207,9 @@ func (j *jsonAgentConfig) toDomain() *domain.AgentConfig {
 		PromptSemanticsBlockThreshold:     j.PromptSemanticsBlockThreshold,
 		PromptSemanticsAlertThreshold:     j.PromptSemanticsAlertThreshold,
 		PromptSemanticsAmbiguousThreshold: j.PromptSemanticsAmbiguousThreshold,
+		PromptEnforcementMode:             j.PromptEnforcementMode,
+		PromptFailClosedSurfaces:          j.PromptFailClosedSurfaces,
+		PromptEnforcementOverride:         j.PromptEnforcementOverride,
 	}
 }
 

@@ -65,9 +65,7 @@ desktop/build/darwin/
 # Installer embedded assets (built artifacts)
 cmd/installer/assets/themisto-agent.exe
 cmd/installer/assets/themisto-desktop.exe
-cmd/installer/assets/extensions/chromium/
-cmd/installer/assets/extensions/firefox/
-!cmd/installer/assets/extensions/.gitkeep
+!cmd/installer/assets/extensions/
 
 # Build output
 dist/

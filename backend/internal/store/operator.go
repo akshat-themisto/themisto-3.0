@@ -13,7 +13,8 @@ func (s *Store) EnsureOperatorControlSchema(ctx context.Context) error {
 		    ADD COLUMN IF NOT EXISTS public_gateway_url TEXT NOT NULL DEFAULT '',
 		    ADD COLUMN IF NOT EXISTS status_reason TEXT NOT NULL DEFAULT '',
 		    ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ,
-		    ADD COLUMN IF NOT EXISTS status_updated_by TEXT NOT NULL DEFAULT '';
+		    ADD COLUMN IF NOT EXISTS status_updated_by TEXT NOT NULL DEFAULT '',
+		    ADD COLUMN IF NOT EXISTS prompt_enforcement_override TEXT NOT NULL DEFAULT '';
 
 		CREATE INDEX IF NOT EXISTS idx_organizations_status
 		    ON organizations(status);`)
@@ -34,7 +35,9 @@ func (s *Store) ListOperatorOrganizations(ctx context.Context) ([]OperatorOrgani
 			o.id, o.name, o.slug, o.api_key_hash, o.status,
 			COALESCE(o.public_backend_url, ''), COALESCE(o.public_gateway_url, ''),
 			COALESCE(o.status_reason, ''), o.status_updated_at,
-			COALESCE(o.status_updated_by, ''), o.created_at, o.updated_at,
+			COALESCE(o.status_updated_by, ''),
+			COALESCE(o.prompt_enforcement_override, ''),
+			o.created_at, o.updated_at,
 			COUNT(DISTINCT d.id),
 			COUNT(DISTINCT d.id) FILTER (WHERE d.status = 'active'),
 			COUNT(DISTINCT c.serial) FILTER (WHERE c.status = 'active'),
@@ -67,7 +70,9 @@ func (s *Store) GetOperatorOrganization(ctx context.Context, id string) (*Operat
 			o.id, o.name, o.slug, o.api_key_hash, o.status,
 			COALESCE(o.public_backend_url, ''), COALESCE(o.public_gateway_url, ''),
 			COALESCE(o.status_reason, ''), o.status_updated_at,
-			COALESCE(o.status_updated_by, ''), o.created_at, o.updated_at,
+			COALESCE(o.status_updated_by, ''),
+			COALESCE(o.prompt_enforcement_override, ''),
+			o.created_at, o.updated_at,
 			COUNT(DISTINCT d.id),
 			COUNT(DISTINCT d.id) FILTER (WHERE d.status = 'active'),
 			COUNT(DISTINCT c.serial) FILTER (WHERE c.status = 'active'),
@@ -97,7 +102,7 @@ func scanOperatorOrganization(row operatorOrgScanner, o *OperatorOrganization) e
 	return row.Scan(
 		&o.ID, &o.Name, &o.Slug, &o.APIKeyHash, &o.Status,
 		&o.PublicBackendURL, &o.PublicGatewayURL, &o.StatusReason,
-		&o.StatusUpdatedAt, &o.StatusUpdatedBy, &o.CreatedAt, &o.UpdatedAt,
+		&o.StatusUpdatedAt, &o.StatusUpdatedBy, &o.PromptOverride, &o.CreatedAt, &o.UpdatedAt,
 		&o.TotalDevices, &o.ActiveDevices, &o.ActiveCerts, &o.LastSeenAt,
 	)
 }

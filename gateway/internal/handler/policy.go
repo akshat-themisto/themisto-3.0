@@ -25,9 +25,10 @@ func NewPolicyHandler(engine *policy.Engine, st *store.Store, verifier *mtls.Cer
 }
 
 type policyPayload struct {
-	Version      string             `json:"version"`
-	Rules        []policyRule       `json:"rules"`
-	Interception policyInterception `json:"interception"`
+	Version                   string             `json:"version"`
+	Rules                     []policyRule       `json:"rules"`
+	Interception              policyInterception `json:"interception"`
+	PromptEnforcementOverride string             `json:"prompt_enforcement_override,omitempty"`
 }
 
 type policyRule struct {
@@ -78,6 +79,11 @@ func (h *PolicyHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 
 	rules := h.engine.RulesForOrg(orgID)
 	payload := convertRules(rules)
+	if override, err := h.store.GetPromptEnforcementOverride(r.Context(), orgID); err != nil {
+		h.logger.Warn("get prompt enforcement override failed", "org_id", orgID, "error", err)
+	} else if override = normalizePromptEnforcementOverride(override); override != "" {
+		payload.PromptEnforcementOverride = override
+	}
 	if domains, err := h.store.ListEffectiveAIInterceptDomains(r.Context(), orgID); err != nil {
 		h.logger.Warn("list intercept domains failed, using defaults", "org_id", orgID, "error", err)
 		payload.Interception = defaultInterceptionConfig(nil)
@@ -171,6 +177,19 @@ func mapDecision(action, decision string) string {
 		return "alert"
 	default:
 		return "forward"
+	}
+}
+
+func normalizePromptEnforcementOverride(mode string) string {
+	switch strings.ToLower(strings.TrimSpace(mode)) {
+	case "monitor":
+		return "monitor"
+	case "alert":
+		return "alert"
+	case "enforce":
+		return "enforce"
+	default:
+		return ""
 	}
 }
 

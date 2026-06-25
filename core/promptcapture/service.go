@@ -59,6 +59,7 @@ type Service struct {
 
 	mu          sync.Mutex
 	evaluations map[string]storedEvaluation
+	adapters    map[domain.CaptureSurface]adapterHeartbeat
 }
 
 type storedEvaluation struct {
@@ -77,6 +78,19 @@ type SemanticEvaluator interface {
 	Evaluate(ctx context.Context, req domain.PromptSemanticRequest) (*domain.PromptSemanticResult, error)
 }
 
+type adapterHeartbeat struct {
+	Surface  domain.CaptureSurface
+	State    string
+	Version  string
+	LastSeen time.Time
+}
+
+type adapterHeartbeatRequest struct {
+	Surface        domain.CaptureSurface `json:"surface"`
+	State          string                `json:"state,omitempty"`
+	AdapterVersion string                `json:"adapter_version,omitempty"`
+}
+
 // NewService creates the local loopback prompt decision service.
 func NewService(deps Deps) *Service {
 	listenAddr := strings.TrimSpace(deps.ListenAddr)
@@ -93,6 +107,7 @@ func NewService(deps Deps) *Service {
 		onBlockCleanup: deps.OnBlockCleanup,
 		listenAddr:     listenAddr,
 		evaluations:    make(map[string]storedEvaluation),
+		adapters:       make(map[domain.CaptureSurface]adapterHeartbeat),
 	}
 }
 
@@ -108,6 +123,8 @@ func (s *Service) Start(ctx context.Context) error {
 	mux := http.NewServeMux()
 	mux.HandleFunc("POST /v1/prompt/evaluate", s.handleEvaluate)
 	mux.HandleFunc("POST /v1/prompt/outcome", s.handleOutcome)
+	mux.HandleFunc("GET /v1/prompt/status", s.handleStatus)
+	mux.HandleFunc("POST /v1/prompt/adapter-heartbeat", s.handleAdapterHeartbeat)
 	mux.HandleFunc("GET /healthz", s.handleHealth)
 	mux.HandleFunc("GET /extensions/chromium/updates.xml", s.handleChromeUpdatesXML)
 	mux.HandleFunc("GET /extensions/chromium/themisto.crx", s.handleChromeExtensionCRX)
@@ -188,24 +205,17 @@ func (s *Service) handleHealth(w http.ResponseWriter, _ *http.Request) {
 
 func (s *Service) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 	start := time.Now()
+	var req domain.PromptEvaluationRequest
 	defer func() {
 		if rec := recover(); rec != nil {
 			s.log.Error("prompt evaluate panic", "error", rec)
-			resp := domain.PromptEvaluationResponse{
-				EvaluationID:  uid.New(),
-				Decision:      domain.DecisionForward,
-				Outcome:       domain.CaptureOutcomeDegradedFailOpen,
-				Message:       "Prompt evaluation unavailable. Proceeding in degraded fail-open mode.",
-				Degraded:      true,
-				DegradedCause: "panic",
-				ReasonCode:    "degraded_fail_open",
-				Reason:        "Prompt evaluator panicked",
-			}
+			resp := s.fallbackEvaluationResponse(req, "panic", "Prompt evaluator panicked")
 			writeJSON(w, http.StatusOK, resp)
 		}
 	}()
 
-	req, err := decodePromptEvaluationRequest(w, r)
+	var err error
+	req, err = decodePromptEvaluationRequest(w, r)
 	if err != nil {
 		writeErrorJSON(w, http.StatusBadRequest, err.Error())
 		return
@@ -214,16 +224,7 @@ func (s *Service) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 	resp, eval, err := s.evaluate(req)
 	if err != nil {
 		s.log.Warn("prompt evaluate failed; fail-open", "error", err)
-		resp = domain.PromptEvaluationResponse{
-			EvaluationID:  uid.New(),
-			Decision:      domain.DecisionForward,
-			Outcome:       domain.CaptureOutcomeDegradedFailOpen,
-			Message:       "Prompt evaluation unavailable. Proceeding in degraded fail-open mode.",
-			Degraded:      true,
-			DegradedCause: "evaluate_error",
-			ReasonCode:    "degraded_fail_open",
-			Reason:        "Prompt evaluator unavailable",
-		}
+		resp = s.fallbackEvaluationResponse(req, "evaluate_error", "Prompt evaluator unavailable")
 		s.emitPromptTelemetry(promptTelemetryInput{
 			Stage:           "evaluate",
 			Surface:         req.Surface,
@@ -279,6 +280,70 @@ func (s *Service) handleEvaluate(w http.ResponseWriter, r *http.Request) {
 			s.onBlockCleanup(req)
 		}(eval.Request)
 	}
+}
+
+func (s *Service) fallbackEvaluationResponse(req domain.PromptEvaluationRequest, cause, reason string) domain.PromptEvaluationResponse {
+	mode, effectiveMode := s.enforcementModes()
+	surfaceState := s.surfaceEnforcement(req.Surface)
+	resp := domain.PromptEvaluationResponse{
+		EvaluationID:             uid.New(),
+		Decision:                 domain.DecisionForward,
+		Outcome:                  domain.CaptureOutcomeDegradedFailOpen,
+		Message:                  "Prompt evaluation unavailable. Proceeding in degraded fail-open mode.",
+		Degraded:                 true,
+		DegradedCause:            cause,
+		ReasonCode:               "degraded_fail_open",
+		Reason:                   reason,
+		EnforcementMode:          mode,
+		EffectiveEnforcementMode: effectiveMode,
+		SurfaceEnforcement:       surfaceState,
+	}
+	if effectiveMode == domain.PromptEnforcementModeEnforce && s.surfaceFailsClosed(req.Surface) {
+		resp.Decision = domain.DecisionBlock
+		resp.Outcome = domain.CaptureOutcomeBlocked
+		resp.Message = "Prompt blocked because Themisto enforcement is active and the local evaluator is unavailable."
+		resp.ReasonCode = "fail_closed_evaluator_unavailable"
+	}
+	return resp
+}
+
+func (s *Service) handleStatus(w http.ResponseWriter, _ *http.Request) {
+	mode, effectiveMode := s.enforcementModes()
+	writeJSON(w, http.StatusOK, domain.PromptStatusResponse{
+		OK:                       true,
+		EnforcementMode:          mode,
+		EffectiveEnforcementMode: effectiveMode,
+		FailClosedSurfaces:       s.failClosedSurfaces(),
+		SurfaceStates:            s.surfaceStates(),
+		PolicyVersion:            s.policyVersion(),
+		ClassifierHealthy:        s.classifierHealthy(),
+		ClassifierRequired:       s.classifierRequired(),
+	})
+}
+
+func (s *Service) handleAdapterHeartbeat(w http.ResponseWriter, r *http.Request) {
+	var req adapterHeartbeatRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, maxEvaluateBodyBytes)).Decode(&req); err != nil {
+		writeErrorJSON(w, http.StatusBadRequest, "invalid JSON body")
+		return
+	}
+	if !req.Surface.Valid() {
+		writeErrorJSON(w, http.StatusBadRequest, "invalid surface")
+		return
+	}
+	state := strings.TrimSpace(req.State)
+	if state == "" {
+		state = s.surfaceEnforcement(req.Surface)
+	}
+	s.mu.Lock()
+	s.adapters[req.Surface] = adapterHeartbeat{
+		Surface:  req.Surface,
+		State:    sanitizeSurfaceState(state),
+		Version:  strings.TrimSpace(req.AdapterVersion),
+		LastSeen: time.Now(),
+	}
+	s.mu.Unlock()
+	writeJSON(w, http.StatusAccepted, map[string]interface{}{"ok": true})
 }
 
 func (s *Service) handleOutcome(w http.ResponseWriter, r *http.Request) {
@@ -455,6 +520,7 @@ func (s *Service) evaluate(req domain.PromptEvaluationRequest) (domain.PromptEva
 		return domain.PromptEvaluationResponse{}, storedEvaluation{}, err
 	}
 	rule := s.lookupRule(ruleID)
+	decision, ruleID, rule = s.applyLocalDLPBaseline(decision, ruleID, rule, req, ctx, info)
 	semanticResult := s.evaluateSemantics(req, ctx, info)
 	decision, ruleID, rule = s.applySemanticDecision(decision, ruleID, rule, semanticResult)
 	reasonCode, reasonDetail := promptReasonForDecision(decision, rule, info, semanticResult)
@@ -463,19 +529,29 @@ func (s *Service) evaluate(req domain.PromptEvaluationRequest) (domain.PromptEva
 	if decision == domain.DecisionBlock {
 		outcome = domain.CaptureOutcomeBlocked
 	}
+	mode, effectiveMode := s.enforcementModes()
+	surfaceState := s.surfaceEnforcement(req.Surface)
+	if effectiveMode == domain.PromptEnforcementModeMonitor && decision == domain.DecisionBlock {
+		decision = domain.DecisionForward
+		outcome = domain.CaptureOutcomeWouldBlock
+		surfaceState = domain.SurfaceEnforcementMonitor
+	}
 
 	resp := domain.PromptEvaluationResponse{
-		EvaluationID: uid.New(),
-		Decision:     decision,
-		PolicyRuleID: ruleID,
-		ReasonCode:   reasonCode,
-		Reason:       reasonDetail,
-		Message:      promptMessage(decision, req, host, rule, info),
-		Outcome:      outcome,
-		MatchCount:   len(info.Matches),
-		MatchTypes:   uniqueMatchTypes(info.Matches),
-		Severity:     info.Severity,
-		Semantic:     semanticResult,
+		EvaluationID:             uid.New(),
+		Decision:                 decision,
+		PolicyRuleID:             ruleID,
+		ReasonCode:               reasonCode,
+		Reason:                   reasonDetail,
+		Message:                  promptMessage(decision, req, host, rule, info),
+		Outcome:                  outcome,
+		MatchCount:               len(info.Matches),
+		MatchTypes:               uniqueMatchTypes(info.Matches),
+		Severity:                 info.Severity,
+		Semantic:                 semanticResult,
+		EnforcementMode:          mode,
+		EffectiveEnforcementMode: effectiveMode,
+		SurfaceEnforcement:       surfaceState,
 	}
 
 	eval := storedEvaluation{
@@ -529,6 +605,190 @@ func (s *Service) evaluateSemantics(req domain.PromptEvaluationRequest, requestC
 		result.LatencyMs = time.Since(start).Milliseconds()
 	}
 	return result
+}
+
+func (s *Service) applyLocalDLPBaseline(decision domain.Decision, ruleID string, rule *domain.PolicyRule, req domain.PromptEvaluationRequest, ctx domain.RequestContext, info domain.DLPInfo) (domain.Decision, string, *domain.PolicyRule) {
+	if decision == domain.DecisionBlock || !info.ContainsCredentials || !isPromptAIContext(req, ctx) {
+		return decision, ruleID, rule
+	}
+
+	rule = &domain.PolicyRule{
+		ID:          "local-baseline:ai-credentials",
+		Decision:    domain.DecisionBlock,
+		BlockReason: "Sensitive credentials were detected in AI traffic.",
+	}
+	return domain.DecisionBlock, rule.ID, rule
+}
+
+func isPromptAIContext(req domain.PromptEvaluationRequest, ctx domain.RequestContext) bool {
+	if strings.HasPrefix(strings.ToLower(strings.TrimSpace(ctx.ServiceCategory)), "ai_") {
+		return true
+	}
+	if strings.TrimSpace(ctx.AIVendor) != "" {
+		return true
+	}
+	if info, ok := domain.InferAIService(ctx.Host, req.DestinationURL); ok && strings.TrimSpace(info.Category) != "" {
+		return true
+	}
+
+	switch req.Surface {
+	case domain.CaptureSurfaceClaudeCode, domain.CaptureSurfaceCursor, domain.CaptureSurfaceWindsurf, domain.CaptureSurfaceGitHubCopilot:
+		return true
+	default:
+		return false
+	}
+}
+
+type promptEnforcementOverrideProvider interface {
+	PromptEnforcementOverride() string
+}
+
+func (s *Service) enforcementModes() (string, string) {
+	cfg := s.currentConfig()
+	mode := domain.PromptEnforcementModeAlert
+	if cfg != nil && strings.TrimSpace(cfg.PromptEnforcementMode) != "" {
+		mode = normalizeEnforcementMode(cfg.PromptEnforcementMode, domain.PromptEnforcementModeAlert)
+	}
+	effective := mode
+	if cfg != nil {
+		if override := normalizeEnforcementMode(cfg.PromptEnforcementOverride, ""); override != "" {
+			effective = override
+		}
+	}
+	if provider, ok := s.router.(promptEnforcementOverrideProvider); ok {
+		if override := normalizeEnforcementMode(provider.PromptEnforcementOverride(), ""); override != "" {
+			effective = override
+		}
+	}
+	return mode, effective
+}
+
+func normalizeEnforcementMode(value, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case domain.PromptEnforcementModeMonitor:
+		return domain.PromptEnforcementModeMonitor
+	case domain.PromptEnforcementModeAlert:
+		return domain.PromptEnforcementModeAlert
+	case domain.PromptEnforcementModeEnforce:
+		return domain.PromptEnforcementModeEnforce
+	default:
+		return fallback
+	}
+}
+
+func (s *Service) currentConfig() *domain.AgentConfig {
+	if s.cfg == nil {
+		return nil
+	}
+	return s.cfg.Get()
+}
+
+func (s *Service) failClosedSurfaces() []domain.CaptureSurface {
+	cfg := s.currentConfig()
+	if cfg == nil || len(cfg.PromptFailClosedSurfaces) == 0 {
+		return []domain.CaptureSurface{}
+	}
+	out := make([]domain.CaptureSurface, 0, len(cfg.PromptFailClosedSurfaces))
+	for _, surface := range cfg.PromptFailClosedSurfaces {
+		if surface.Valid() {
+			out = append(out, surface)
+		}
+	}
+	return out
+}
+
+func (s *Service) surfaceFailsClosed(surface domain.CaptureSurface) bool {
+	if !surface.Valid() {
+		return false
+	}
+	for _, candidate := range s.failClosedSurfaces() {
+		if candidate == surface {
+			return true
+		}
+	}
+	return false
+}
+
+func (s *Service) surfaceEnforcement(surface domain.CaptureSurface) string {
+	_, effective := s.enforcementModes()
+	switch surface {
+	case domain.CaptureSurfaceWindsurf, domain.CaptureSurfaceGitHubCopilot:
+		return domain.SurfaceEnforcementWouldBlock
+	case domain.CaptureSurfaceDesktop:
+		return domain.SurfaceEnforcementUnprotected
+	}
+	if effective == domain.PromptEnforcementModeMonitor {
+		return domain.SurfaceEnforcementMonitor
+	}
+	if effective == domain.PromptEnforcementModeEnforce && s.surfaceFailsClosed(surface) {
+		return domain.SurfaceEnforcementHardBlock
+	}
+	if surface.Valid() {
+		return domain.SurfaceEnforcementAlertOnly
+	}
+	return domain.SurfaceEnforcementUnknown
+}
+
+func (s *Service) surfaceStates() map[domain.CaptureSurface]string {
+	states := map[domain.CaptureSurface]string{}
+	for _, surface := range []domain.CaptureSurface{
+		domain.CaptureSurfaceBrowserChromium,
+		domain.CaptureSurfaceBrowserFirefox,
+		domain.CaptureSurfaceBrowserSafari,
+		domain.CaptureSurfaceClaudeCode,
+		domain.CaptureSurfaceCursor,
+		domain.CaptureSurfaceWindsurf,
+		domain.CaptureSurfaceGitHubCopilot,
+		domain.CaptureSurfaceDesktop,
+	} {
+		states[surface] = s.surfaceEnforcement(surface)
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	for surface, hb := range s.adapters {
+		if now.Sub(hb.LastSeen) <= 5*time.Minute {
+			states[surface] = sanitizeSurfaceState(hb.State)
+		}
+	}
+	return states
+}
+
+func sanitizeSurfaceState(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case domain.SurfaceEnforcementHardBlock:
+		return domain.SurfaceEnforcementHardBlock
+	case domain.SurfaceEnforcementAlertOnly:
+		return domain.SurfaceEnforcementAlertOnly
+	case domain.SurfaceEnforcementWouldBlock:
+		return domain.SurfaceEnforcementWouldBlock
+	case domain.SurfaceEnforcementMonitor:
+		return domain.SurfaceEnforcementMonitor
+	case domain.SurfaceEnforcementUnprotected:
+		return domain.SurfaceEnforcementUnprotected
+	default:
+		return domain.SurfaceEnforcementUnknown
+	}
+}
+
+func (s *Service) policyVersion() string {
+	versionProvider, ok := s.router.(interface{ PolicyVersion() string })
+	if !ok {
+		return ""
+	}
+	return strings.TrimSpace(versionProvider.PolicyVersion())
+}
+
+func (s *Service) classifierRequired() bool {
+	cfg := s.currentConfig()
+	return cfg != nil && cfg.PromptSemanticsEnabled
+}
+
+func (s *Service) classifierHealthy() bool {
+	if !s.classifierRequired() {
+		return true
+	}
+	return s.semantic != nil
 }
 
 func (s *Service) applySemanticDecision(decision domain.Decision, ruleID string, rule *domain.PolicyRule, semantic *domain.PromptSemanticResult) (domain.Decision, string, *domain.PolicyRule) {

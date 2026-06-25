@@ -324,3 +324,26 @@ func TestEngine_InterceptionNormalization(t *testing.T) {
 		}
 	}
 }
+
+func TestEngine_PromptEnforcementOverride(t *testing.T) {
+	e := NewEngine(domain.DecisionForward)
+	if err := e.Update(&domain.PolicyPayload{
+		Version:                   "v1",
+		PromptEnforcementOverride: "MONITOR",
+	}); err != nil {
+		t.Fatalf("update policy: %v", err)
+	}
+	if got := e.PromptEnforcementOverride(); got != domain.PromptEnforcementModeMonitor {
+		t.Fatalf("override = %q, want monitor", got)
+	}
+
+	if err := e.Update(&domain.PolicyPayload{
+		Version:                   "v2",
+		PromptEnforcementOverride: "invalid",
+	}); err != nil {
+		t.Fatalf("update policy: %v", err)
+	}
+	if got := e.PromptEnforcementOverride(); got != "" {
+		t.Fatalf("invalid override should clear to empty, got %q", got)
+	}
+}

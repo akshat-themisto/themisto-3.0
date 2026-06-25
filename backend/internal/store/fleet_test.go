@@ -23,6 +23,7 @@ func TestDeriveFleetConnectivity(t *testing.T) {
 				OrganizationStatus: "active", EnrollmentStatus: "active",
 				LastSeenAt: secondsAgo(20), GatewayConnected: true, ProxyListenerAlive: true,
 				ProxyIntegrity: "ok", PromptCapture: "healthy", SemanticClassifier: "healthy",
+				ProtectionState: "protected",
 			},
 			want: "connected",
 		},
@@ -32,6 +33,17 @@ func TestDeriveFleetConnectivity(t *testing.T) {
 				OrganizationStatus: "active", EnrollmentStatus: "active",
 				LastSeenAt: secondsAgo(20), GatewayConnected: false, ProxyListenerAlive: true,
 				ProxyIntegrity: "ok", PromptCapture: "healthy", SemanticClassifier: "healthy",
+				ProtectionState: "protected",
+			},
+			want: "degraded",
+		},
+		{
+			name: "recent unprotected state degrades device",
+			device: FleetDevice{
+				OrganizationStatus: "active", EnrollmentStatus: "active",
+				LastSeenAt: secondsAgo(20), GatewayConnected: true, ProxyListenerAlive: true,
+				ProxyIntegrity: "ok", PromptCapture: "healthy", SemanticClassifier: "healthy",
+				ProtectionState: "unprotected",
 			},
 			want: "degraded",
 		},
@@ -49,7 +61,7 @@ func TestDeriveFleetConnectivity(t *testing.T) {
 				OrganizationStatus: "active", EnrollmentStatus: "active",
 				LastSeenAt: secondsAgo(10), LastTamperAt: secondsAgo(30), LastHealthyAt: secondsAgo(10),
 				GatewayConnected: true, ProxyListenerAlive: true, ProxyIntegrity: "ok",
-				PromptCapture: "healthy", SemanticClassifier: "disabled",
+				PromptCapture: "healthy", SemanticClassifier: "disabled", ProtectionState: "protected",
 			},
 			want: "connected",
 		},
@@ -76,5 +88,35 @@ func TestDeriveFleetConnectivity(t *testing.T) {
 				t.Fatalf("connectivity = %q, want %q", got, test.want)
 			}
 		})
+	}
+}
+
+func TestFilterFleetDevices(t *testing.T) {
+	devices := []FleetDevice{
+		{DeviceID: "dev-1", DeviceName: "finance-laptop", Hostname: "fin-host", AgentUser: "alice", OS: "windows", Connectivity: "connected"},
+		{DeviceID: "dev-2", DeviceName: "eng-mac", Hostname: "builder", AgentUser: "bob", OS: "darwin", Connectivity: "offline"},
+	}
+
+	got := filterFleetDevices(devices, FleetFilter{Status: "connected", Query: "alice"})
+	if len(got) != 1 || got[0].DeviceID != "dev-1" {
+		t.Fatalf("filtered devices = %#v", got)
+	}
+
+	got = filterFleetDevices(devices, FleetFilter{Query: "builder"})
+	if len(got) != 1 || got[0].DeviceID != "dev-2" {
+		t.Fatalf("query devices = %#v", got)
+	}
+}
+
+func TestPaginateFleetDevices(t *testing.T) {
+	devices := []FleetDevice{{DeviceID: "1"}, {DeviceID: "2"}, {DeviceID: "3"}}
+	got := paginateFleetDevices(devices, 2, 2)
+	if len(got) != 1 || got[0].DeviceID != "3" {
+		t.Fatalf("page 2 = %#v", got)
+	}
+
+	got = paginateFleetDevices(devices, 99, 2)
+	if len(got) != 1 || got[0].DeviceID != "3" {
+		t.Fatalf("overflow page = %#v", got)
 	}
 }

@@ -61,6 +61,10 @@ func (s *Server) handleExportDLPEventsCSV(w http.ResponseWriter, r *http.Request
 		       COALESCE(semantic_confidence, 0),
 		       COALESCE(semantic_ambiguous, false),
 		       COALESCE(semantic_reason, ''),
+		       COALESCE(review_status, 'unreviewed'),
+		       COALESCE(review_note, ''),
+		       COALESCE(reviewed_by, ''),
+		       reviewed_at,
 		       match_types,
 		       matched_patterns
 		FROM dlp_events
@@ -79,7 +83,7 @@ func (s *Server) handleExportDLPEventsCSV(w http.ResponseWriter, r *http.Request
 	cw := csv.NewWriter(w)
 	defer cw.Flush()
 
-	_ = cw.Write([]string{"id", "timestamp", "device_id", "request_host", "request_method", "source_app", "ai_vendor", "reason_code", "action_taken", "match_count", "policy_rule_id", "protocol", "intercepted_https", "inspection_quality", "inspection_skip_reason", "direction", "request_body_truncated", "semantic_source", "semantic_category", "semantic_confidence", "semantic_ambiguous", "semantic_reason", "match_types", "matched_patterns"})
+	_ = cw.Write([]string{"id", "timestamp", "device_id", "request_host", "request_method", "source_app", "ai_vendor", "reason_code", "action_taken", "match_count", "policy_rule_id", "protocol", "intercepted_https", "inspection_quality", "inspection_skip_reason", "direction", "request_body_truncated", "semantic_source", "semantic_category", "semantic_confidence", "semantic_ambiguous", "semantic_reason", "review_status", "review_note", "reviewed_by", "reviewed_at", "match_types", "matched_patterns"})
 
 	for rows.Next() {
 		var (
@@ -105,11 +109,19 @@ func (s *Server) handleExportDLPEventsCSV(w http.ResponseWriter, r *http.Request
 			semanticConfidence float64
 			semanticAmbiguous  bool
 			semanticReason     string
+			reviewStatus       string
+			reviewNote         string
+			reviewedBy         string
+			reviewedAt         *time.Time
 			matchTypes         []string
 			patterns           []string
 		)
-		if err := rows.Scan(&id, &ts, &deviceID, &host, &method, &sourceApp, &aiVendor, &reasonCode, &action, &matchCount, &policyRuleID, &protocol, &intercepted, &quality, &skipReason, &direction, &bodyTruncated, &semanticSource, &semanticCategory, &semanticConfidence, &semanticAmbiguous, &semanticReason, pq.Array(&matchTypes), pq.Array(&patterns)); err != nil {
+		if err := rows.Scan(&id, &ts, &deviceID, &host, &method, &sourceApp, &aiVendor, &reasonCode, &action, &matchCount, &policyRuleID, &protocol, &intercepted, &quality, &skipReason, &direction, &bodyTruncated, &semanticSource, &semanticCategory, &semanticConfidence, &semanticAmbiguous, &semanticReason, &reviewStatus, &reviewNote, &reviewedBy, &reviewedAt, pq.Array(&matchTypes), pq.Array(&patterns)); err != nil {
 			continue
+		}
+		reviewedAtValue := ""
+		if reviewedAt != nil {
+			reviewedAtValue = reviewedAt.UTC().Format(time.RFC3339)
 		}
 		_ = cw.Write([]string{
 			strconv.FormatInt(id, 10),
@@ -134,6 +146,10 @@ func (s *Server) handleExportDLPEventsCSV(w http.ResponseWriter, r *http.Request
 			strconv.FormatFloat(semanticConfidence, 'f', 3, 64),
 			strconv.FormatBool(semanticAmbiguous),
 			semanticReason,
+			reviewStatus,
+			reviewNote,
+			reviewedBy,
+			reviewedAtValue,
 			strings.Join(matchTypes, ";"),
 			strings.Join(patterns, ";"),
 		})

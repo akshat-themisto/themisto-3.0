@@ -1,10 +1,13 @@
 package cursorcleanup
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/themisto/agent/core/dlp"
 )
 
 type testPaths struct {
@@ -113,5 +116,17 @@ func TestCleanBlockedPromptTranscript_SkipsMissingPath(t *testing.T) {
 	}
 	if !strings.Contains(result.Message, "skipped") {
 		t.Fatalf("expected skip message, got %q", result.Message)
+	}
+}
+
+func TestRedactSensitiveTextPreservesJSON(t *testing.T) {
+	original := `{"user":{"name":"John","ssn":"123-45-6789"},"active":true}`
+	redacted := redactSensitiveText(original, dlp.RedactionPatterns())
+	if strings.Contains(redacted, "123-45-6789") {
+		t.Fatalf("SSN still present after redaction: %s", redacted)
+	}
+	var parsed map[string]interface{}
+	if err := json.Unmarshal([]byte(redacted), &parsed); err != nil {
+		t.Fatalf("redacted JSON is invalid: %v\n%s", err, redacted)
 	}
 }

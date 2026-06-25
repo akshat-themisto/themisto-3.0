@@ -45,7 +45,11 @@ ALTER TABLE dlp_events
     ADD COLUMN IF NOT EXISTS semantic_category TEXT,
     ADD COLUMN IF NOT EXISTS semantic_confidence DOUBLE PRECISION,
     ADD COLUMN IF NOT EXISTS semantic_ambiguous BOOLEAN,
-    ADD COLUMN IF NOT EXISTS semantic_reason TEXT;
+    ADD COLUMN IF NOT EXISTS semantic_reason TEXT,
+    ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'unreviewed',
+    ADD COLUMN IF NOT EXISTS review_note TEXT,
+    ADD COLUMN IF NOT EXISTS reviewed_by TEXT,
+    ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
 
 UPDATE dlp_events SET action_taken = 'alert' WHERE action_taken IS NULL OR action_taken = '';
 UPDATE dlp_events SET protocol = 'http' WHERE protocol IS NULL OR protocol = '';
@@ -59,13 +63,15 @@ UPDATE dlp_events SET match_count = 0 WHERE match_count IS NULL;
 UPDATE dlp_events SET file_count = 0 WHERE file_count IS NULL;
 UPDATE dlp_events SET request_body_truncated = FALSE WHERE request_body_truncated IS NULL;
 UPDATE dlp_events SET intercepted_https = FALSE WHERE intercepted_https IS NULL;
+UPDATE dlp_events SET review_status = 'unreviewed' WHERE review_status IS NULL OR review_status = '';
 
 ALTER TABLE dlp_events
     DROP CONSTRAINT IF EXISTS dlp_events_action_taken_check,
     DROP CONSTRAINT IF EXISTS dlp_events_protocol_check,
     DROP CONSTRAINT IF EXISTS dlp_events_inspection_quality_check,
     DROP CONSTRAINT IF EXISTS dlp_events_direction_check,
-    DROP CONSTRAINT IF EXISTS dlp_events_severity_check;
+    DROP CONSTRAINT IF EXISTS dlp_events_severity_check,
+    DROP CONSTRAINT IF EXISTS dlp_events_review_status_check;
 
 ALTER TABLE dlp_events
     ADD CONSTRAINT dlp_events_action_taken_check
@@ -77,7 +83,9 @@ ALTER TABLE dlp_events
     ADD CONSTRAINT dlp_events_direction_check
     CHECK (direction IN ('outbound', 'inbound')),
     ADD CONSTRAINT dlp_events_severity_check
-    CHECK (severity IN ('low', 'medium', 'high', 'critical'));
+    CHECK (severity IN ('low', 'medium', 'high', 'critical')),
+    ADD CONSTRAINT dlp_events_review_status_check
+    CHECK (review_status IN ('unreviewed', 'reviewed', 'false_positive', 'escalated'));
 
 CREATE INDEX IF NOT EXISTS idx_dlp_events_org_time
     ON dlp_events (org_id, timestamp DESC);
@@ -101,6 +109,8 @@ CREATE INDEX IF NOT EXISTS idx_dlp_events_body_retention
 CREATE INDEX IF NOT EXISTS idx_dlp_events_semantic_source_time
     ON dlp_events (semantic_source, timestamp DESC)
     WHERE semantic_source IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_dlp_events_org_review_time
+    ON dlp_events (org_id, review_status, timestamp DESC);
 `)
 	return err
 }

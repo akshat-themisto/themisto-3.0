@@ -2,7 +2,11 @@
   const SURFACE = 'browser_safari';
   const API_BASE = 'http://127.0.0.1:17175';
   const MAX_PROMPT_CHARS = 120000;
-  const EVALUATE_TIMEOUT_MS = 3000;
+  const EVALUATE_TIMEOUT_MS = 20000;
+  const STATUS_TIMEOUT_MS = 2500;
+  const EXTENSION_VERSION = '1.0.1';
+  const ENFORCEMENT_CACHE_KEY = 'themisto_prompt_enforcement_mode';
+  const VALID_ENFORCEMENT_MODES = new Set(['monitor', 'alert', 'enforce']);
   const SUPPORT_HOSTS = [
     'claude.ai',
     'chatgpt.com',
@@ -20,6 +24,13 @@
   }
 
   let evaluationInFlight = false;
+  let cachedEnforcementMode = null;
+  window.__themistoPromptCapture = {
+    loaded: true,
+    version: EXTENSION_VERSION,
+    surface: SURFACE,
+    apiBase: API_BASE,
+  };
 
   function inferVendor() {
     if (host.includes('openai') || host.includes('chatgpt')) return 'openai';
@@ -107,53 +118,182 @@
       existing.remove();
     }
 
+    const palette = kind === 'block'
+      ? {
+          label: 'Prompt blocked',
+          icon: '!',
+          accent: '#b42318',
+          accentSoft: '#fee4e2',
+          border: 'rgba(180, 35, 24, .24)',
+        }
+      : kind === 'warn'
+        ? {
+            label: 'Prompt notice',
+            icon: '!',
+            accent: '#936316',
+            accentSoft: '#fef3c7',
+            border: 'rgba(147, 99, 22, .24)',
+          }
+        : {
+            label: 'Prompt allowed',
+            icon: 'i',
+            accent: '#0b4a73',
+            accentSoft: '#e0f2fe',
+            border: 'rgba(11, 74, 115, .24)',
+          };
+
     const node = document.createElement('div');
     node.id = 'themisto-prompt-banner';
-    node.textContent = message;
+    node.setAttribute('role', kind === 'block' ? 'alert' : 'status');
     node.style.position = 'fixed';
-    node.style.top = '14px';
+    node.style.top = '16px';
     node.style.left = '50%';
     node.style.transform = 'translateX(-50%)';
     node.style.zIndex = '2147483647';
     node.style.fontFamily = 'ui-sans-serif, -apple-system, Segoe UI, Helvetica, Arial, sans-serif';
     node.style.fontSize = '13px';
-    node.style.padding = '10px 14px';
-    node.style.borderRadius = '10px';
-    node.style.border = '1px solid rgba(0,0,0,.2)';
-    node.style.boxShadow = '0 10px 30px rgba(0,0,0,.22)';
-    node.style.maxWidth = '70vw';
+    node.style.lineHeight = '1.35';
+    node.style.display = 'flex';
+    node.style.alignItems = 'flex-start';
+    node.style.gap = '10px';
+    node.style.padding = '12px 14px';
+    node.style.borderRadius = '8px';
+    node.style.border = `1px solid ${palette.border}`;
+    node.style.boxShadow = '0 18px 42px rgba(15, 23, 42, .18), 0 2px 8px rgba(15, 23, 42, .08)';
+    node.style.maxWidth = 'min(560px, calc(100vw - 32px))';
+    node.style.background = 'rgba(255, 255, 255, .97)';
+    node.style.color = '#14213d';
+    node.style.backdropFilter = 'blur(10px)';
 
-    if (kind === 'block') {
-      node.style.background = '#fee2e2';
-      node.style.color = '#7f1d1d';
-      node.style.borderColor = '#fca5a5';
-    } else if (kind === 'warn') {
-      node.style.background = '#fef3c7';
-      node.style.color = '#78350f';
-      node.style.borderColor = '#fcd34d';
-    } else {
-      node.style.background = '#e0f2fe';
-      node.style.color = '#0c4a6e';
-      node.style.borderColor = '#7dd3fc';
-    }
+    const icon = document.createElement('div');
+    icon.textContent = palette.icon;
+    icon.style.width = '22px';
+    icon.style.height = '22px';
+    icon.style.minWidth = '22px';
+    icon.style.borderRadius = '999px';
+    icon.style.display = 'grid';
+    icon.style.placeItems = 'center';
+    icon.style.marginTop = '1px';
+    icon.style.background = palette.accentSoft;
+    icon.style.color = palette.accent;
+    icon.style.fontWeight = '800';
+    icon.style.fontSize = '13px';
+
+    const copy = document.createElement('div');
+    copy.style.minWidth = '0';
+
+    const title = document.createElement('div');
+    title.textContent = palette.label;
+    title.style.color = palette.accent;
+    title.style.fontWeight = '750';
+    title.style.fontSize = '12px';
+    title.style.marginBottom = '2px';
+
+    const body = document.createElement('div');
+    body.textContent = message;
+    body.style.fontWeight = '500';
+    body.style.overflowWrap = 'anywhere';
+
+    copy.appendChild(title);
+    copy.appendChild(body);
+    node.appendChild(icon);
+    node.appendChild(copy);
 
     document.body.appendChild(node);
+    if (typeof node.animate === 'function') {
+      node.animate([
+        { opacity: 0, transform: 'translate(-50%, -8px)' },
+        { opacity: 1, transform: 'translate(-50%, 0)' },
+      ], { duration: 180, easing: 'cubic-bezier(.2,.8,.2,1)' });
+    }
     window.setTimeout(() => {
       node.remove();
     }, 4600);
   }
 
-  async function postJSON(path, payload, timeoutMs) {
+  async function storageGet(key) {
+    try {
+      const items = await browser.storage.local.get(key);
+      return items ? items[key] : null;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function storageSet(key, value) {
+    try {
+      await browser.storage.local.set({ [key]: value });
+    } catch (_) {
+      // Best effort only.
+    }
+  }
+
+  async function getCachedEnforcementMode() {
+    if (cachedEnforcementMode) {
+      return cachedEnforcementMode;
+    }
+    const stored = await storageGet(ENFORCEMENT_CACHE_KEY);
+    cachedEnforcementMode = VALID_ENFORCEMENT_MODES.has(stored) ? stored : 'alert';
+    return cachedEnforcementMode;
+  }
+
+  async function setCachedEnforcementMode(mode) {
+    if (!VALID_ENFORCEMENT_MODES.has(mode)) {
+      return;
+    }
+    cachedEnforcementMode = mode;
+    await storageSet(ENFORCEMENT_CACHE_KEY, mode);
+  }
+
+  function enforcementModeFromPayload(payload) {
+    if (!payload || typeof payload !== 'object') {
+      return '';
+    }
+    const mode = payload.effective_enforcement_mode || payload.enforcement_mode || '';
+    return VALID_ENFORCEMENT_MODES.has(mode) ? mode : '';
+  }
+
+  async function cacheEnforcementMode(payload) {
+    const mode = enforcementModeFromPayload(payload);
+    if (mode) {
+      await setCachedEnforcementMode(mode);
+    }
+  }
+
+  async function postJSON(path, payload, timeoutMs, method = 'POST') {
     const resp = await browser.runtime.sendMessage({
       type: 'themisto_fetch',
       url: API_BASE + path,
-      body: JSON.stringify(payload),
+      body: method === 'GET' || payload === undefined || payload === null ? undefined : JSON.stringify(payload),
       timeoutMs,
+      method,
     });
     if (resp && resp.error) {
       throw new Error(resp.error);
     }
     return resp.data;
+  }
+
+  async function refreshPromptStatus() {
+    try {
+      const status = await postJSON('/v1/prompt/status', null, STATUS_TIMEOUT_MS, 'GET');
+      await cacheEnforcementMode(status);
+      return status;
+    } catch (_) {
+      return null;
+    }
+  }
+
+  async function reportAdapterHeartbeat(state) {
+    try {
+      await postJSON('/v1/prompt/adapter-heartbeat', {
+        surface: SURFACE,
+        state: state || 'unknown',
+        adapter_version: EXTENSION_VERSION,
+      }, STATUS_TIMEOUT_MS);
+    } catch (_) {
+      // Best effort only.
+    }
   }
 
   async function reportOutcome(result, outcome, errorText) {
@@ -190,9 +330,11 @@
       vendor: inferVendor(),
       service_category: 'ai_llm',
       protocol: 'http',
-      adapter_version: '1.0.0',
+      adapter_version: EXTENSION_VERSION,
     };
-    return await postJSON('/v1/prompt/evaluate', payload, EVALUATE_TIMEOUT_MS);
+    const result = await postJSON('/v1/prompt/evaluate', payload, EVALUATE_TIMEOUT_MS);
+    await cacheEnforcementMode(result);
+    return result;
   }
 
   function markBypassForm(form) {
@@ -345,7 +487,14 @@
     try {
       result = await evaluatePrompt(promptText);
     } catch (err) {
-      showBanner('warn', 'Prompt evaluator unavailable. Send allowed in degraded fail-open mode.');
+      const mode = await getCachedEnforcementMode();
+      if (mode === 'enforce') {
+        showBanner('block', 'Prompt protection is unavailable. Sending is blocked until Themisto reconnects or policy is changed.');
+        await reportAdapterHeartbeat('hard_block');
+        evaluationInFlight = false;
+        return;
+      }
+      showBanner('warn', 'Prompt evaluator unavailable. Send allowed in degraded alert mode.');
       await reportOutcome(null, 'degraded_fail_open', String(err));
       resumeSend(action);
       evaluationInFlight = false;
@@ -478,4 +627,14 @@
   document.addEventListener('keydown', (event) => {
     void processKeydown(event);
   }, true);
+
+  if (isSupportedRoute()) {
+    void getCachedEnforcementMode();
+    void refreshPromptStatus();
+    void reportAdapterHeartbeat('unknown');
+    window.setInterval(() => {
+      void refreshPromptStatus();
+      void reportAdapterHeartbeat('unknown');
+    }, 60000);
+  }
 })();

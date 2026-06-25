@@ -4,12 +4,17 @@ browser.runtime.onMessage.addListener((msg, sender, sendResponse) => {
   const controller = new AbortController();
   const timeout = setTimeout(() => controller.abort('timeout'), msg.timeoutMs || 2000);
 
-  fetch(msg.url, {
-    method: 'POST',
+  const method = msg.method || 'POST';
+  const init = {
+    method,
     headers: { 'Content-Type': 'application/json' },
-    body: msg.body,
     signal: controller.signal,
-  })
+  };
+  if (method !== 'GET' && msg.body) {
+    init.body = msg.body;
+  }
+
+  fetch(msg.url, init)
     .then(async (resp) => {
       clearTimeout(timeout);
       if (!resp.ok) {

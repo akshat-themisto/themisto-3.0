@@ -54,6 +54,8 @@ services:
       - DB_DSN=postgres://themisto:${POSTGRES_PASSWORD:-themisto_dev_password}@postgres:5432/themisto?sslmode=disable
       - ADMIN_API_KEY=${ADMIN_API_KEY:-themisto_dev_admin_key_123}
       - OPERATOR_ORG_ID=${OPERATOR_ORG_ID:-a0000000-0000-0000-0000-000000000001}
+      - OPERATOR_MODE=${OPERATOR_MODE:-customer_ops}
+      - PROMPT_TEST_EVALUATOR_URL=${PROMPT_TEST_EVALUATOR_URL:-http://host.docker.internal:17175/v1/prompt/evaluate}
       - CONTROL_PLANE_URL=${CONTROL_PLANE_URL:-}
       - CONTROL_PLANE_TOKEN=${CONTROL_PLANE_TOKEN:-}
       - CONTROL_PLANE_FAIL_MODE=${CONTROL_PLANE_FAIL_MODE:-closed}

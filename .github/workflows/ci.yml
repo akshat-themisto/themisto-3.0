@@ -1,0 +1,177 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+      - "codex/**"
+
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+env:
+  GO_VERSION: "1.25.x"
+  NODE_VERSION: "22"
+
+jobs:
+  packext-drift:
+    name: Browser Extension Packaging Drift
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      - name: Regenerate embedded browser extension assets
+        run: go run ./cmd/packext
+
+      - name: Assert committed embedded extension output is current
+        shell: bash
+        run: |
+          git diff --exit-code -- cmd/installer/assets/extensions
+          if [ -n "$(git status --porcelain --untracked-files=all -- cmd/installer/assets/extensions)" ]; then
+            echo "Generated embedded extension files are untracked. Commit cmd/installer/assets/extensions output from cmd/packext." >&2
+            git status --short --untracked-files=all -- cmd/installer/assets/extensions >&2
+            exit 1
+          fi
+
+  installer-assets:
+    name: Installer Asset Hygiene
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Reject Python bytecode in installer classifier assets
+        shell: bash
+        run: |
+          if find cmd/installer/assets/classifier \( -name '*.pyc' -o -name '__pycache__' \) -print -quit | grep -q .; then
+            echo "Python bytecode/cache files must not be shipped in cmd/installer/assets/classifier" >&2
+            find cmd/installer/assets/classifier \( -name '*.pyc' -o -name '__pycache__' \) -print >&2
+            exit 1
+          fi
+
+  go-root:
+    name: Agent Go Tests (${{ matrix.os }})
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, windows-latest]
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: go.sum
+
+      - name: Test root module
+        run: go test ./...
+
+  go-services:
+    name: Service Go Tests (${{ matrix.module }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - module: backend
+            path: backend
+            cache: backend/go.sum
+          - module: gateway
+            path: gateway
+            cache: gateway/go.sum
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: ${{ matrix.cache }}
+
+      - name: Test ${{ matrix.module }}
+        working-directory: ${{ matrix.path }}
+        run: go test ./...
+
+  desktop-go:
+    name: Desktop Go Tests
+    runs-on: windows-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: ${{ env.GO_VERSION }}
+          cache-dependency-path: |
+            go.sum
+            desktop/go.sum
+
+      - name: Test desktop module
+        working-directory: desktop
+        run: go test ./...
+
+  dashboard:
+    name: Dashboard Builds
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: dashboard/package-lock.json
+
+      - name: Install dashboard dependencies
+        working-directory: dashboard
+        run: npm ci
+
+      - name: Build customer dashboard
+        working-directory: dashboard
+        run: npm run build
+
+      - name: Build customer ops dashboard
+        working-directory: dashboard
+        run: npm run build:ops
+
+  desktop-frontend:
+    name: Desktop Frontend Build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: ${{ env.NODE_VERSION }}
+          cache: npm
+          cache-dependency-path: desktop/frontend/package-lock.json
+
+      - name: Install desktop frontend dependencies
+        working-directory: desktop/frontend
+        run: npm ci
+
+      - name: Build desktop frontend
+        working-directory: desktop/frontend
+        run: npm run build

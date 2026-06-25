@@ -218,6 +218,7 @@ ALTER TABLE organizations ADD COLUMN IF NOT EXISTS public_gateway_url TEXT NOT N
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS status_reason TEXT NOT NULL DEFAULT '';
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS status_updated_at TIMESTAMPTZ;
 ALTER TABLE organizations ADD COLUMN IF NOT EXISTS status_updated_by TEXT NOT NULL DEFAULT '';
+ALTER TABLE organizations ADD COLUMN IF NOT EXISTS prompt_enforcement_override TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_organizations_status ON organizations(status);
 CREATE TABLE IF NOT EXISTS dlp_events (
     id               BIGSERIAL PRIMARY KEY,
@@ -252,7 +253,16 @@ ALTER TABLE dlp_events
     ADD COLUMN IF NOT EXISTS classification_reason TEXT,
     ADD COLUMN IF NOT EXISTS content_type TEXT,
     ADD COLUMN IF NOT EXISTS file_count INTEGER NOT NULL DEFAULT 0,
-    ADD COLUMN IF NOT EXISTS matched_fields TEXT[] NOT NULL DEFAULT '{}';
+    ADD COLUMN IF NOT EXISTS matched_fields TEXT[] NOT NULL DEFAULT '{}',
+    ADD COLUMN IF NOT EXISTS semantic_source TEXT,
+    ADD COLUMN IF NOT EXISTS semantic_category TEXT,
+    ADD COLUMN IF NOT EXISTS semantic_confidence DOUBLE PRECISION,
+    ADD COLUMN IF NOT EXISTS semantic_ambiguous BOOLEAN,
+    ADD COLUMN IF NOT EXISTS semantic_reason TEXT,
+    ADD COLUMN IF NOT EXISTS review_status TEXT NOT NULL DEFAULT 'unreviewed',
+    ADD COLUMN IF NOT EXISTS review_note TEXT,
+    ADD COLUMN IF NOT EXISTS reviewed_by TEXT,
+    ADD COLUMN IF NOT EXISTS reviewed_at TIMESTAMPTZ;
 UPDATE dlp_events SET action_taken = 'alert' WHERE action_taken IS NULL OR action_taken = '';
 UPDATE dlp_events SET protocol = 'http' WHERE protocol IS NULL OR protocol = '';
 UPDATE dlp_events SET inspection_quality = 'full' WHERE inspection_quality IS NULL OR inspection_quality = '';
@@ -265,18 +275,21 @@ UPDATE dlp_events SET match_count = 0 WHERE match_count IS NULL;
 UPDATE dlp_events SET file_count = 0 WHERE file_count IS NULL;
 UPDATE dlp_events SET request_body_truncated = FALSE WHERE request_body_truncated IS NULL;
 UPDATE dlp_events SET intercepted_https = FALSE WHERE intercepted_https IS NULL;
+UPDATE dlp_events SET review_status = 'unreviewed' WHERE review_status IS NULL OR review_status = '';
 ALTER TABLE dlp_events
     DROP CONSTRAINT IF EXISTS dlp_events_action_taken_check,
     DROP CONSTRAINT IF EXISTS dlp_events_protocol_check,
     DROP CONSTRAINT IF EXISTS dlp_events_inspection_quality_check,
     DROP CONSTRAINT IF EXISTS dlp_events_direction_check,
-    DROP CONSTRAINT IF EXISTS dlp_events_severity_check;
+    DROP CONSTRAINT IF EXISTS dlp_events_severity_check,
+    DROP CONSTRAINT IF EXISTS dlp_events_review_status_check;
 ALTER TABLE dlp_events
     ADD CONSTRAINT dlp_events_action_taken_check CHECK (action_taken IN ('alert', 'block', 'redact')),
     ADD CONSTRAINT dlp_events_protocol_check CHECK (protocol IN ('http', 'https', 'connect')),
     ADD CONSTRAINT dlp_events_inspection_quality_check CHECK (inspection_quality IN ('full', 'metadata_only', 'skipped')),
     ADD CONSTRAINT dlp_events_direction_check CHECK (direction IN ('outbound', 'inbound')),
-    ADD CONSTRAINT dlp_events_severity_check CHECK (severity IN ('low', 'medium', 'high', 'critical'));
+    ADD CONSTRAINT dlp_events_severity_check CHECK (severity IN ('low', 'medium', 'high', 'critical')),
+    ADD CONSTRAINT dlp_events_review_status_check CHECK (review_status IN ('unreviewed', 'reviewed', 'false_positive', 'escalated'));
 CREATE INDEX IF NOT EXISTS idx_dlp_events_org_time ON dlp_events (org_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_dlp_events_device ON dlp_events (device_id, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_dlp_events_ai_vendor ON dlp_events (ai_vendor, timestamp DESC) WHERE ai_vendor IS NOT NULL;
@@ -285,6 +298,8 @@ CREATE INDEX IF NOT EXISTS idx_dlp_events_protocol_time ON dlp_events (protocol,
 CREATE INDEX IF NOT EXISTS idx_dlp_events_direction_time ON dlp_events (direction, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_dlp_events_org_severity_time ON dlp_events (org_id, severity, timestamp DESC);
 CREATE INDEX IF NOT EXISTS idx_dlp_events_body_retention ON dlp_events (timestamp) WHERE request_body_encrypted IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_dlp_events_semantic_source_time ON dlp_events (semantic_source, timestamp DESC) WHERE semantic_source IS NOT NULL;
+CREATE INDEX IF NOT EXISTS idx_dlp_events_org_review_time ON dlp_events (org_id, review_status, timestamp DESC);
 CREATE TABLE IF NOT EXISTS admin_user_alert_reads (
     user_id      UUID NOT NULL REFERENCES admin_users(id) ON DELETE CASCADE,
     dlp_event_id BIGINT NOT NULL REFERENCES dlp_events(id) ON DELETE CASCADE,

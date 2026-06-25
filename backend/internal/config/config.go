@@ -22,8 +22,10 @@ type Config struct {
 	DBDSN         string `yaml:"-"`
 	AdminAPIKey   string `yaml:"-"`
 	OperatorOrgID string `yaml:"-"`
+	OperatorMode  string `yaml:"-"`
 
 	DLPBodyRetentionDays int      `yaml:"-"`
+	PromptTestURL        string   `yaml:"-"`
 	CORSAllowedOrigins   []string `yaml:"-"`
 }
 
@@ -107,6 +109,18 @@ func Load(path string) (*Config, error) {
 		return nil, fmt.Errorf("ADMIN_API_KEY environment variable is required")
 	}
 	cfg.OperatorOrgID = strings.TrimSpace(os.Getenv("OPERATOR_ORG_ID"))
+	cfg.OperatorMode = strings.ToLower(strings.TrimSpace(os.Getenv("OPERATOR_MODE")))
+	switch cfg.OperatorMode {
+	case "", "customer_ops":
+		cfg.OperatorMode = "customer_ops"
+	case "control_plane":
+	default:
+		return nil, fmt.Errorf("invalid OPERATOR_MODE value: %q", cfg.OperatorMode)
+	}
+	cfg.PromptTestURL = strings.TrimSpace(os.Getenv("PROMPT_TEST_EVALUATOR_URL"))
+	if cfg.PromptTestURL == "" {
+		cfg.PromptTestURL = "http://127.0.0.1:17175/v1/prompt/evaluate"
+	}
 
 	if v := os.Getenv("PUBLIC_BACKEND_URL"); v != "" {
 		cfg.Public.BackendURL = v

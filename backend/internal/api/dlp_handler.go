@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net"
 	"net/http"
 	"strconv"
@@ -27,14 +28,20 @@ func (s *Server) handleListDLPEvents(w http.ResponseWriter, r *http.Request) {
 	}
 
 	filter := store.DLPFilter{
-		OrgID:       user.OrgID,
-		DeviceID:    r.URL.Query().Get("device_id"),
-		RequestHost: r.URL.Query().Get("host"),
-		AIVendor:    r.URL.Query().Get("ai_vendor"),
-		MatchType:   r.URL.Query().Get("match_type"),
-		Protocol:    r.URL.Query().Get("protocol"),
-		Page:        page,
-		Limit:       limit,
+		OrgID:          user.OrgID,
+		DeviceID:       r.URL.Query().Get("device_id"),
+		RequestHost:    r.URL.Query().Get("host"),
+		AIVendor:       r.URL.Query().Get("ai_vendor"),
+		MatchType:      r.URL.Query().Get("match_type"),
+		Protocol:       r.URL.Query().Get("protocol"),
+		Severity:       r.URL.Query().Get("severity"),
+		ActionTaken:    r.URL.Query().Get("action_taken"),
+		ReviewStatus:   r.URL.Query().Get("review_status"),
+		SemanticSource: r.URL.Query().Get("semantic_source"),
+		Sort:           r.URL.Query().Get("sort"),
+		Order:          r.URL.Query().Get("order"),
+		Page:           page,
+		Limit:          limit,
 	}
 
 	if from := r.URL.Query().Get("from"); from != "" {
@@ -137,6 +144,69 @@ func (s *Server) handleGetDLPEvent(w http.ResponseWriter, r *http.Request) {
 		writeError(w, http.StatusNotFound, "NOT_FOUND", "DLP event not found")
 		return
 	}
+
+	writeJSON(w, http.StatusOK, event)
+}
+
+type updateDLPReviewRequest struct {
+	Status string `json:"review_status"`
+	Note   string `json:"review_note"`
+}
+
+func (s *Server) handleUpdateDLPEventReview(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+
+	idStr := r.PathValue("id")
+	eventID, err := strconv.ParseInt(idStr, 10, 64)
+	if err != nil || eventID <= 0 {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid DLP event id")
+		return
+	}
+
+	var req updateDLPReviewRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid JSON body")
+		return
+	}
+
+	event, err := s.store.UpdateDLPEventReview(r.Context(), user.OrgID, eventID, store.DLPReviewInput{
+		Status:     req.Status,
+		Note:       req.Note,
+		ReviewedBy: user.Email,
+	})
+	if err != nil {
+		if strings.Contains(err.Error(), "invalid review_status") {
+			writeError(w, http.StatusBadRequest, "INVALID_REVIEW_STATUS", "review_status must be unreviewed, reviewed, false_positive, or escalated")
+			return
+		}
+		s.logger.Error("update DLP review", "event_id", eventID, "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "internal error")
+		return
+	}
+	if event == nil {
+		writeError(w, http.StatusNotFound, "NOT_FOUND", "DLP event not found")
+		return
+	}
+
+	orgID := user.OrgID
+	_ = s.store.InsertAudit(r.Context(), nil, &store.AuditEntry{
+		ActorType:    "admin_user",
+		ActorID:      user.ID,
+		OrgID:        &orgID,
+		Action:       "dlp.event.reviewed",
+		ResourceType: "dlp_event",
+		ResourceID:   strconv.FormatInt(eventID, 10),
+		Details: map[string]interface{}{
+			"review_status": event.ReviewStatus,
+			"review_note":   req.Note,
+			"viewer_email":  user.Email,
+		},
+		IPAddress: clientIPFromRequest(r),
+	})
 
 	writeJSON(w, http.StatusOK, event)
 }

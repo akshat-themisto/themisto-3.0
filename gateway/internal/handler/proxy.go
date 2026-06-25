@@ -490,15 +490,71 @@ func sanitizedAgentStatusData(data map[string]interface{}) map[string]interface{
 		"agent_version": true, "protocol_version": true, "policy_version": true,
 		"uptime_seconds": true, "gateway_connected": true, "proxy_listener_alive": true,
 		"proxy_integrity": true, "prompt_capture": true, "semantic_classifier": true,
-		"service_status": true, "auto_reregister": true, "host": true, "port": true, "remediation": true,
+		"browser_protection": true, "service_status": true, "auto_reregister": true,
+		"hostname": true, "agent_user": true, "host": true, "port": true, "remediation": true,
+		"policy_fresh": true, "classifier_required": true, "classifier_healthy": true,
+		"prompt_enforcement_mode": true, "effective_prompt_enforcement_mode": true,
+		"protection_state": true,
 	}
 	out := make(map[string]interface{}, len(allowed))
 	for key, value := range data {
+		if key == "surface_states" {
+			if sanitized, ok := sanitizeSurfaceStates(value); ok {
+				out[key] = sanitized
+			}
+			continue
+		}
 		if allowed[key] {
 			out[key] = value
 		}
 	}
 	return out
+}
+
+func sanitizeSurfaceStates(raw interface{}) (map[string]string, bool) {
+	var states map[string]string
+	switch value := raw.(type) {
+	case map[string]string:
+		states = value
+	case map[string]interface{}:
+		states = make(map[string]string, len(value))
+		for surface, state := range value {
+			text, ok := state.(string)
+			if !ok {
+				continue
+			}
+			states[surface] = text
+		}
+	default:
+		return nil, false
+	}
+
+	out := make(map[string]string, len(states))
+	for surface, state := range states {
+		if allowedSurfaceStateKey(surface) && allowedSurfaceStateValue(state) {
+			out[surface] = state
+		}
+	}
+	return out, len(out) > 0
+}
+
+func allowedSurfaceStateKey(surface string) bool {
+	switch surface {
+	case "browser_chromium", "browser_firefox", "browser_safari",
+		"desktop", "claude_code", "cursor", "windsurf", "github_copilot":
+		return true
+	default:
+		return false
+	}
+}
+
+func allowedSurfaceStateValue(state string) bool {
+	switch state {
+	case "hard_block", "alert_only", "would_block", "monitor_only", "unprotected", "unknown":
+		return true
+	default:
+		return false
+	}
 }
 
 func (h *ProxyHandler) emitEvent(deviceID, orgID string, r *http.Request, status int, latency time.Duration, bytesSent int64, decision string, ruleID *string) {

@@ -62,6 +62,7 @@ func (s *Server) handleOperatorMe(w http.ResponseWriter, r *http.Request) {
 		"authenticated": true,
 		"actor_id":      getOperatorActorID(r),
 		"org_id":        s.operatorOrgID,
+		"mode":          normalizeOperatorMode(s.operatorMode),
 	})
 }
 

@@ -2,7 +2,10 @@
 
 package desktop
 
-import "context"
+import (
+	"context"
+	"errors"
+)
 
 // DarwinAccessibilityAdapter is the macOS pre-send capture adapter.
 // The production implementation should subscribe to AX events on supported
@@ -15,6 +18,8 @@ func NewDarwinAccessibilityAdapter() *DarwinAccessibilityAdapter {
 
 func (a *DarwinAccessibilityAdapter) Name() string { return "darwin_accessibility" }
 
-func (a *DarwinAccessibilityAdapter) Start(context.Context) error { return nil }
+func (a *DarwinAccessibilityAdapter) Start(context.Context) error {
+	return errors.New("desktop prompt capture adapter is not implemented for macOS Accessibility")
+}
 
 func (a *DarwinAccessibilityAdapter) Stop(context.Context) error { return nil }

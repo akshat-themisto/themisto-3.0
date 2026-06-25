@@ -242,6 +242,17 @@ func (s *Store) GetAllPolicyRules(ctx context.Context) ([]PolicyRule, error) {
 	return rules, rows.Err()
 }
 
+func (s *Store) GetPromptEnforcementOverride(ctx context.Context, orgID string) (string, error) {
+	var mode string
+	err := s.DB.QueryRowContext(ctx,
+		`SELECT COALESCE(prompt_enforcement_override, '') FROM organizations WHERE id = $1`, orgID,
+	).Scan(&mode)
+	if err == sql.ErrNoRows {
+		return "", nil
+	}
+	return strings.ToLower(strings.TrimSpace(mode)), err
+}
+
 func decodePolicyConditions(raw []byte, out *[]PolicyCondition) error {
 	if len(raw) == 0 {
 		*out = []PolicyCondition{}

@@ -96,6 +96,7 @@ func newDefaultScanner() *Scanner {
 		{name: "stripe_key", re: regexp.MustCompile(`\b(?:sk|pk)_(?:live|test)_[a-zA-Z0-9]{24,}\b`)},
 		{name: "jwt_token", re: regexp.MustCompile(`\beyJ[a-zA-Z0-9\-_]+\.eyJ[a-zA-Z0-9\-_]+\.[a-zA-Z0-9\-_]+\b`)},
 		{name: "generic_secret", re: regexp.MustCompile(`(?i)(?:secret|password|passwd|token|api[-_]?key|authorization)\s*[:=]\s*['"]?([a-zA-Z0-9+/=\-_]{16,})['"]?`)},
+		{name: "credential_context_token", re: regexp.MustCompile(`(?i)\b(?:api[-_\s]?key|secret[-_\s]?key|access[-_\s]?token|bearer[-_\s]?token|token|credential)\b[^\r\n]{0,40}\b(?:sk-(?:live|test|prod|production|dev|stage|staging)-[a-zA-Z0-9\-_]{4,}|sk-[a-zA-Z0-9\-_]{6,}|gh[pousr]_[a-zA-Z0-9]{6,}|xox[baprs]-[a-zA-Z0-9\-]{6,}|AKIA[0-9A-Z]{8,})\b`)},
 	}
 
 	s.codePatterns = []pattern{

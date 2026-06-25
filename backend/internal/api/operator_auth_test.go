@@ -99,3 +99,36 @@ func TestOperatorBearerRejectsBrowserOriginButAllowsHeadlessClient(t *testing.T)
 		t.Fatalf("headless bearer status=%d want=%d", rec.Code, http.StatusNoContent)
 	}
 }
+
+func TestCustomerOpsModeRestrictsControlPlaneOperatorRoutes(t *testing.T) {
+	s := testOperatorServer()
+	s.operatorMode = "customer_ops"
+	handler := s.requireControlPlaneOperator(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/operator/orgs", nil)
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusForbidden {
+		t.Fatalf("status=%d want=%d body=%s", rec.Code, http.StatusForbidden, rec.Body.String())
+	}
+	if !strings.Contains(rec.Body.String(), "OPERATOR_MODE_RESTRICTED") {
+		t.Fatalf("missing restriction code in body: %s", rec.Body.String())
+	}
+}
+
+func TestControlPlaneModeAllowsControlPlaneOperatorRoutes(t *testing.T) {
+	s := testOperatorServer()
+	s.operatorMode = "control_plane"
+	handler := s.requireControlPlaneOperator(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusNoContent)
+	})
+
+	req := httptest.NewRequest(http.MethodPost, "/api/v1/operator/orgs", nil)
+	rec := httptest.NewRecorder()
+	handler(rec, req)
+	if rec.Code != http.StatusNoContent {
+		t.Fatalf("status=%d want=%d body=%s", rec.Code, http.StatusNoContent, rec.Body.String())
+	}
+}

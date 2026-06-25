@@ -1,6 +1,7 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"path/filepath"
@@ -47,9 +48,80 @@ func (s *Server) handleListPolicies(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"rules": rules,
-		"total": len(rules),
+		"rules":                       rules,
+		"total":                       len(rules),
+		"prompt_enforcement_override": s.policyEnforcementOverride(r.Context(), user.OrgID),
 	})
+}
+
+type policyEnforcementRequest struct {
+	PromptEnforcementOverride string `json:"prompt_enforcement_override"`
+	Mode                      string `json:"mode"`
+}
+
+func (s *Server) handleGetPolicyEnforcement(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"prompt_enforcement_override": s.policyEnforcementOverride(r.Context(), user.OrgID),
+	})
+}
+
+func (s *Server) handleUpdatePolicyEnforcement(w http.ResponseWriter, r *http.Request) {
+	user := getUserFromContext(r)
+	if user == nil {
+		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
+		return
+	}
+
+	var req policyEnforcementRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid JSON body")
+		return
+	}
+	mode := normalizePolicyEnforcementOverride(req.PromptEnforcementOverride)
+	if mode == "" && strings.TrimSpace(req.PromptEnforcementOverride) == "" {
+		mode = normalizePolicyEnforcementOverride(req.Mode)
+	}
+	if !validPolicyEnforcementOverride(mode) {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "prompt_enforcement_override must be empty, monitor, alert, or enforce")
+		return
+	}
+	if err := s.store.UpdatePromptEnforcementOverride(r.Context(), user.OrgID, mode); err != nil {
+		s.logger.Error("update prompt enforcement override", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{"prompt_enforcement_override": mode})
+}
+
+func (s *Server) policyEnforcementOverride(ctx context.Context, orgID string) string {
+	mode, err := s.store.GetPromptEnforcementOverride(ctx, orgID)
+	if err != nil {
+		s.logger.Warn("get prompt enforcement override", "org_id", orgID, "error", err)
+		return ""
+	}
+	mode = normalizePolicyEnforcementOverride(mode)
+	if !validPolicyEnforcementOverride(mode) {
+		return ""
+	}
+	return mode
+}
+
+func normalizePolicyEnforcementOverride(mode string) string {
+	return strings.ToLower(strings.TrimSpace(mode))
+}
+
+func validPolicyEnforcementOverride(mode string) bool {
+	switch mode {
+	case "", "monitor", "alert", "enforce":
+		return true
+	default:
+		return false
+	}
 }
 
 func (s *Server) handleCreatePolicy(w http.ResponseWriter, r *http.Request) {

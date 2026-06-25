@@ -91,6 +91,8 @@ export const api = {
     updatePolicy: (id, data) => request(`/api/v1/policies/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deletePolicy: (id) => request(`/api/v1/policies/${id}`, { method: 'DELETE' }),
     testPolicy: (data) => request('/api/v1/policies/test', { method: 'POST', body: JSON.stringify(data) }),
+    getPolicyEnforcement: () => request('/api/v1/policies/enforcement'),
+    updatePolicyEnforcement: (mode) => request('/api/v1/policies/enforcement', { method: 'PUT', body: JSON.stringify({ prompt_enforcement_override: mode }) }),
 
     // AI governance
     listAIGovernanceVendors: async () => {
@@ -158,6 +160,7 @@ export const api = {
         return request(`/api/v1/dlp/events?${qs}`);
     },
     getDLPEvent: (id) => request(`/api/v1/dlp/events/${id}`),
+    updateDLPEventReview: (id, data) => request(`/api/v1/dlp/events/${id}/review`, { method: 'PATCH', body: JSON.stringify(data) }),
     dlpSummary: (params = {}) => {
         const qs = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v))).toString();
         return request(`/api/v1/dlp/summary?${qs}`);
@@ -168,6 +171,7 @@ export const api = {
         return request(`/api/v1/alerts?${qs}`);
     },
     markAlertsRead: (eventIDs = []) => request('/api/v1/alerts/read', { method: 'POST', body: JSON.stringify({ event_ids: eventIDs }) }),
+    promptPolicyTest: (data) => request('/api/v1/policies/prompt-test', { method: 'POST', body: JSON.stringify(data) }),
 
     // Evidence exports
     evidencePolicySnapshot: () => request('/api/v1/evidence/policies'),

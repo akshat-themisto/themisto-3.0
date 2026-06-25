@@ -8,6 +8,7 @@ import (
 	"net"
 	"net/http"
 	"os"
+	osuser "os/user"
 	"strconv"
 	"strings"
 	"time"
@@ -623,23 +624,151 @@ func (a *Agent) runIntegrityMonitor(ctx context.Context, cfg *domain.AgentConfig
 }
 
 func (a *Agent) emitAgentHeartbeat(cfg *domain.AgentConfig, listenerAlive bool, integrityState string) {
+	promptCaptureHealth := a.probeLocalHealth(cfg.PromptCaptureListenAddr, "/healthz")
+	classifierStatus := a.semanticClassifierHealth(cfg)
+	surfaceStates := a.promptSurfaceStates(cfg)
+	effectiveMode := a.effectivePromptEnforcementMode(cfg)
+	policyFresh := strings.TrimSpace(a.engine.Version()) != ""
 	a.collector.Emit("agent.heartbeat", &domain.EventPayload{
 		AgentID:   cfg.AgentID,
 		Timestamp: time.Now(),
 		Data: map[string]interface{}{
-			"agent_version":        a.version,
-			"protocol_version":     domain.ProtocolVersion,
-			"policy_version":       a.engine.Version(),
-			"uptime_seconds":       int64(time.Since(a.startTime).Seconds()),
-			"gateway_connected":    a.gateway != nil && a.gateway.Healthy(),
-			"proxy_listener_alive": listenerAlive,
-			"proxy_integrity":      integrityState,
-			"prompt_capture":       a.probeLocalHealth(cfg.PromptCaptureListenAddr, "/healthz"),
-			"semantic_classifier":  a.semanticClassifierHealth(cfg),
-			"service_status":       a.serviceStatus(),
-			"auto_reregister":      cfg.AutoReregister,
+			"agent_version":                     a.version,
+			"protocol_version":                  domain.ProtocolVersion,
+			"hostname":                          agentHostname(),
+			"agent_user":                        agentUser(),
+			"policy_version":                    a.engine.Version(),
+			"policy_fresh":                      policyFresh,
+			"uptime_seconds":                    int64(time.Since(a.startTime).Seconds()),
+			"gateway_connected":                 a.gateway != nil && a.gateway.Healthy(),
+			"proxy_listener_alive":              listenerAlive,
+			"proxy_integrity":                   integrityState,
+			"prompt_capture":                    promptCaptureHealth,
+			"browser_protection":                browserProtectionState(promptCaptureHealth),
+			"semantic_classifier":               classifierStatus,
+			"classifier_required":               cfg.PromptSemanticsEnabled,
+			"classifier_healthy":                classifierStatus == "healthy" || (!cfg.PromptSemanticsEnabled && classifierStatus == "disabled"),
+			"prompt_enforcement_mode":           cfg.PromptEnforcementMode,
+			"effective_prompt_enforcement_mode": effectiveMode,
+			"surface_states":                    surfaceStates,
+			"protection_state":                  a.protectionState(cfg, listenerAlive, integrityState, promptCaptureHealth, classifierStatus, policyFresh, surfaceStates, effectiveMode),
+			"service_status":                    a.serviceStatus(),
+			"auto_reregister":                   cfg.AutoReregister,
 		},
 	})
+}
+
+func (a *Agent) effectivePromptEnforcementMode(cfg *domain.AgentConfig) string {
+	mode := normalizePromptMode(cfg.PromptEnforcementMode, domain.PromptEnforcementModeAlert)
+	if override := normalizePromptMode(cfg.PromptEnforcementOverride, ""); override != "" {
+		mode = override
+	}
+	if override := normalizePromptMode(a.engine.PromptEnforcementOverride(), ""); override != "" {
+		mode = override
+	}
+	return mode
+}
+
+func normalizePromptMode(value, fallback string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case domain.PromptEnforcementModeMonitor:
+		return domain.PromptEnforcementModeMonitor
+	case domain.PromptEnforcementModeAlert:
+		return domain.PromptEnforcementModeAlert
+	case domain.PromptEnforcementModeEnforce:
+		return domain.PromptEnforcementModeEnforce
+	default:
+		return fallback
+	}
+}
+
+func (a *Agent) promptSurfaceStates(cfg *domain.AgentConfig) map[string]string {
+	effective := a.effectivePromptEnforcementMode(cfg)
+	failClosed := map[domain.CaptureSurface]bool{}
+	for _, surface := range cfg.PromptFailClosedSurfaces {
+		failClosed[surface] = true
+	}
+	stateFor := func(surface domain.CaptureSurface) string {
+		switch surface {
+		case domain.CaptureSurfaceWindsurf, domain.CaptureSurfaceGitHubCopilot:
+			return domain.SurfaceEnforcementWouldBlock
+		case domain.CaptureSurfaceDesktop:
+			return domain.SurfaceEnforcementUnprotected
+		}
+		if effective == domain.PromptEnforcementModeMonitor {
+			return domain.SurfaceEnforcementMonitor
+		}
+		if effective == domain.PromptEnforcementModeEnforce && failClosed[surface] {
+			return domain.SurfaceEnforcementHardBlock
+		}
+		return domain.SurfaceEnforcementAlertOnly
+	}
+	return map[string]string{
+		string(domain.CaptureSurfaceBrowserChromium): stateFor(domain.CaptureSurfaceBrowserChromium),
+		string(domain.CaptureSurfaceBrowserFirefox):  stateFor(domain.CaptureSurfaceBrowserFirefox),
+		string(domain.CaptureSurfaceBrowserSafari):   stateFor(domain.CaptureSurfaceBrowserSafari),
+		string(domain.CaptureSurfaceClaudeCode):      stateFor(domain.CaptureSurfaceClaudeCode),
+		string(domain.CaptureSurfaceCursor):          stateFor(domain.CaptureSurfaceCursor),
+		string(domain.CaptureSurfaceWindsurf):        stateFor(domain.CaptureSurfaceWindsurf),
+		string(domain.CaptureSurfaceGitHubCopilot):   stateFor(domain.CaptureSurfaceGitHubCopilot),
+		string(domain.CaptureSurfaceDesktop):         stateFor(domain.CaptureSurfaceDesktop),
+	}
+}
+
+func (a *Agent) protectionState(cfg *domain.AgentConfig, listenerAlive bool, integrityState, promptCaptureHealth, classifierStatus string, policyFresh bool, surfaceStates map[string]string, effectiveMode string) string {
+	if integrityState != "ok" {
+		return "tampered"
+	}
+	if !listenerAlive || promptCaptureHealth != "healthy" {
+		return "unprotected"
+	}
+	if cfg.PromptSemanticsEnabled && classifierStatus != "healthy" {
+		return "degraded"
+	}
+	if !policyFresh {
+		return "degraded"
+	}
+	if effectiveMode == domain.PromptEnforcementModeMonitor {
+		return "monitor_only"
+	}
+	for _, state := range surfaceStates {
+		if state == domain.SurfaceEnforcementHardBlock {
+			return "protected"
+		}
+	}
+	return "unprotected"
+}
+
+func agentHostname() string {
+	host, err := os.Hostname()
+	if err != nil {
+		return ""
+	}
+	return strings.TrimSpace(host)
+}
+
+func agentUser() string {
+	if current, err := osuser.Current(); err == nil && current != nil {
+		if name := strings.TrimSpace(current.Username); name != "" {
+			return name
+		}
+	}
+	for _, key := range []string{"USERNAME", "USER"} {
+		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
+			return value
+		}
+	}
+	return ""
+}
+
+func browserProtectionState(promptCaptureHealth string) string {
+	if promptCaptureHealth == "healthy" {
+		return "capture_service_healthy"
+	}
+	if promptCaptureHealth == "" {
+		return "not_reported"
+	}
+	return promptCaptureHealth
 }
 
 func (a *Agent) serviceStatus() string {
