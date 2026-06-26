@@ -233,9 +233,6 @@ export default function Policies() {
     const [testResult, setTestResult] = useState(null);
     const [testLoading, setTestLoading] = useState(false);
     const [testError, setTestError] = useState('');
-    const [enforcementOverride, setEnforcementOverride] = useState('');
-    const [savingEnforcement, setSavingEnforcement] = useState(false);
-
     const enabledCount = useMemo(() => rules.filter((r) => r.enabled).length, [rules]);
     const baselineRules = useMemo(() => rules.filter((r) => (r.name || '').startsWith('Managed: AI ')), [rules]);
 
@@ -248,23 +245,9 @@ export default function Policies() {
         api.listPolicies()
             .then((d) => {
                 setRules(d.rules || []);
-                setEnforcementOverride(d.prompt_enforcement_override || '');
             })
             .catch(() => setRules([]))
             .finally(() => setLoading(false));
-    };
-
-    const saveEnforcementOverride = async () => {
-        setSavingEnforcement(true);
-        try {
-            const result = await api.updatePolicyEnforcement(enforcementOverride);
-            setEnforcementOverride(result?.prompt_enforcement_override || '');
-            toast.success('Prompt enforcement override updated.');
-        } catch (err) {
-            toast.error(err.message || 'Failed to update prompt enforcement override');
-        } finally {
-            setSavingEnforcement(false);
-        }
     };
 
     const openCreate = () => {
@@ -457,26 +440,6 @@ export default function Policies() {
                             <label><input type="checkbox" checked readOnly /> Local classifier enabled when agent config enables prompt semantics</label>
                             <label><input type="checkbox" checked readOnly /> Gateway fallback used for ambiguous or low-confidence prompts</label>
                             <label><input type="checkbox" checked readOnly /> Ambiguous prompts alert by default</label>
-                        </div>
-                        <div className="policy-enforcement-control">
-                            <label className="form-label">Emergency enforcement override</label>
-                            <div className="policy-enforcement-row">
-                                <select
-                                    className="form-select"
-                                    value={enforcementOverride}
-                                    disabled={!isAdmin || savingEnforcement}
-                                    onChange={(event) => setEnforcementOverride(event.target.value)}
-                                >
-                                    <option value="">Normal policy</option>
-                                    <option value="monitor">Monitor only</option>
-                                    <option value="alert">Alert only</option>
-                                    <option value="enforce">Enforce</option>
-                                </select>
-                                <button className="btn btn-sm" disabled={!isAdmin || savingEnforcement} onClick={saveEnforcementOverride}>
-                                    {savingEnforcement ? 'Saving...' : 'Apply'}
-                                </button>
-                            </div>
-                            <span className="policy-helper-text">Use monitor only to recover a fleet if prompt protection is blocking because the local evaluator is down.</span>
                         </div>
                     </section>
                 </div>

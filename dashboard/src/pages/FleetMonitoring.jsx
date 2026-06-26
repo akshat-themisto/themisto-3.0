@@ -220,6 +220,8 @@ export default function FleetMonitoring() {
     const [page, setPage] = useState(1);
     const [pageSize, setPageSize] = useState(25);
     const [selectedDeviceID, setSelectedDeviceID] = useState('');
+    const [emergencyMode, setEmergencyMode] = useState('');
+    const [savingEmergencyMode, setSavingEmergencyMode] = useState(false);
     const [autoRefresh, setAutoRefresh] = useState(true);
 
     const loadFleet = useCallback(async (quiet = false) => {
@@ -235,12 +237,29 @@ export default function FleetMonitoring() {
                 selected_device_id: selectedDeviceID,
             });
             setData(response || { summary: {}, devices: [], signals: [] });
+            setEmergencyMode(response?.prompt_enforcement_override || '');
         } catch (err) {
             setError(err.message || 'Could not load fleet monitoring');
         } finally {
             if (!quiet) setLoading(false);
         }
     }, [page, pageSize, query, selectedDeviceID, status]);
+
+    const saveEmergencyMode = async (mode) => {
+        setSavingEmergencyMode(true);
+        setError('');
+        try {
+            const response = await operatorApi.updateFleetEmergencyMode(mode);
+            const nextMode = response?.prompt_enforcement_override || '';
+            setEmergencyMode(nextMode);
+            setData((current) => ({ ...current, prompt_enforcement_override: nextMode }));
+            await loadFleet(true);
+        } catch (err) {
+            setError(err.message || 'Could not update emergency mode');
+        } finally {
+            setSavingEmergencyMode(false);
+        }
+    };
 
     useEffect(() => {
         loadFleet();
@@ -281,6 +300,20 @@ export default function FleetMonitoring() {
                 </div>
 
                 {error && <div className="alert alert-danger">{error}</div>}
+
+                <section className={`fleet-emergency-panel ${emergencyMode ? 'active' : ''}`}>
+                    <div>
+                        <span>Emergency Mode</span>
+                        <strong>{emergencyMode ? emergencyMode.replace('_', ' ').toUpperCase() : 'NORMAL POLICY'}</strong>
+                        <p>Ops-only fleet control. Use Monitor only to recover a customer deployment if local prompt enforcement is blocking because the evaluator or classifier is down.</p>
+                    </div>
+                    <div className="fleet-emergency-actions">
+                        <button className="btn btn-sm" disabled={savingEmergencyMode || emergencyMode === 'monitor'} onClick={() => saveEmergencyMode('monitor')}>Monitor</button>
+                        <button className="btn btn-sm" disabled={savingEmergencyMode || emergencyMode === 'alert'} onClick={() => saveEmergencyMode('alert')}>Alert</button>
+                        <button className="btn btn-sm" disabled={savingEmergencyMode || emergencyMode === 'enforce'} onClick={() => saveEmergencyMode('enforce')}>Enforce</button>
+                        <button className="btn btn-primary btn-sm" disabled={savingEmergencyMode || emergencyMode === ''} onClick={() => saveEmergencyMode('')}>Normal</button>
+                    </div>
+                </section>
 
                 <section className="fleet-summary-grid">
                     <button className={`fleet-summary ${status === '' ? 'selected' : ''}`} onClick={() => { setStatus(''); setPage(1); }}>

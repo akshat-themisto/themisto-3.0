@@ -97,6 +97,7 @@ func NewServer(
 	srv.mux.HandleFunc("GET /api/v1/operator/auth/me", srv.withOperatorAuth(srv.handleOperatorMe))
 	srv.mux.HandleFunc("GET /api/v1/operator/orgs", srv.withOperatorAuth(srv.requireControlPlaneOperator(srv.handleOperatorListOrgs)))
 	srv.mux.HandleFunc("GET /api/v1/operator/fleet", srv.withOperatorAuth(srv.handleOperatorFleet))
+	srv.mux.HandleFunc("PUT /api/v1/operator/fleet/emergency-mode", srv.withOperatorAuth(srv.handleOperatorFleetEmergencyMode))
 	srv.mux.HandleFunc("POST /api/v1/operator/orgs", srv.withOperatorAuth(srv.requireControlPlaneOperator(srv.handleOperatorCreateOrg)))
 	srv.mux.HandleFunc("PUT /api/v1/operator/orgs/{orgID}/provisioning", srv.withOperatorAuth(srv.requireControlPlaneOperator(srv.handleOperatorUpdateProvisioning)))
 	srv.mux.HandleFunc("POST /api/v1/operator/orgs/{orgID}/deployment-package", srv.withOperatorAuth(srv.requireControlPlaneOperator(srv.handleOperatorCreateDeploymentPackage)))

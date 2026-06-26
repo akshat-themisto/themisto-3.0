@@ -71,31 +71,7 @@ func (s *Server) handleGetPolicyEnforcement(w http.ResponseWriter, r *http.Reque
 }
 
 func (s *Server) handleUpdatePolicyEnforcement(w http.ResponseWriter, r *http.Request) {
-	user := getUserFromContext(r)
-	if user == nil {
-		writeError(w, http.StatusUnauthorized, "UNAUTHORIZED", "not authenticated")
-		return
-	}
-
-	var req policyEnforcementRequest
-	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid JSON body")
-		return
-	}
-	mode := normalizePolicyEnforcementOverride(req.PromptEnforcementOverride)
-	if mode == "" && strings.TrimSpace(req.PromptEnforcementOverride) == "" {
-		mode = normalizePolicyEnforcementOverride(req.Mode)
-	}
-	if !validPolicyEnforcementOverride(mode) {
-		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "prompt_enforcement_override must be empty, monitor, alert, or enforce")
-		return
-	}
-	if err := s.store.UpdatePromptEnforcementOverride(r.Context(), user.OrgID, mode); err != nil {
-		s.logger.Error("update prompt enforcement override", "error", err)
-		writeError(w, http.StatusInternalServerError, "INTERNAL", "internal error")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]string{"prompt_enforcement_override": mode})
+	writeError(w, http.StatusForbidden, "OPS_ONLY", "emergency enforcement controls are only available in the operations dashboard")
 }
 
 func (s *Server) policyEnforcementOverride(ctx context.Context, orgID string) string {

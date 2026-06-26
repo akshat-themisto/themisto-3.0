@@ -37,6 +37,10 @@ export const operatorApi = {
         const query = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, value]) => value))).toString();
         return operatorRequest(`/api/v1/operator/fleet${query ? `?${query}` : ''}`);
     },
+    updateFleetEmergencyMode: (mode) => operatorRequest('/api/v1/operator/fleet/emergency-mode', {
+        method: 'PUT',
+        body: JSON.stringify({ prompt_enforcement_override: mode }),
+    }),
     createOrg: (data) => operatorRequest('/api/v1/operator/orgs', { method: 'POST', body: JSON.stringify(data) }),
     updateProvisioning: (orgID, data) => operatorRequest(`/api/v1/operator/orgs/${orgID}/provisioning`, { method: 'PUT', body: JSON.stringify(data) }),
     createDeploymentPackage: (orgID, data) => operatorRequest(`/api/v1/operator/orgs/${orgID}/deployment-package`, { method: 'POST', body: JSON.stringify(data) }),

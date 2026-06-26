@@ -1,6 +1,7 @@
 package api
 
 import (
+	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
@@ -67,18 +68,48 @@ func (s *Server) handleOperatorFleet(w http.ResponseWriter, r *http.Request) {
 	}
 
 	writeJSON(w, http.StatusOK, map[string]interface{}{
-		"generated_at":            time.Now().UTC(),
-		"summary":                 summary,
-		"devices":                 devices,
-		"signals":                 signals,
-		"selected_device_id":      selectedDeviceID,
-		"selected_device_signals": deviceSignals,
-		"page":                    page,
-		"limit":                   limit,
-		"total":                   total,
+		"generated_at":                time.Now().UTC(),
+		"summary":                     summary,
+		"devices":                     devices,
+		"signals":                     signals,
+		"selected_device_id":          selectedDeviceID,
+		"selected_device_signals":     deviceSignals,
+		"prompt_enforcement_override": s.policyEnforcementOverride(r.Context(), s.operatorOrgID),
+		"page":                        page,
+		"limit":                       limit,
+		"total":                       total,
 		"thresholds": map[string]int{
 			"connected_seconds": 90,
 			"offline_seconds":   300,
 		},
+	})
+}
+
+func (s *Server) handleOperatorFleetEmergencyMode(w http.ResponseWriter, r *http.Request) {
+	if s.operatorOrgID == "" {
+		writeError(w, http.StatusServiceUnavailable, "OPERATOR_ORG_NOT_CONFIGURED", "operator organization is not configured")
+		return
+	}
+
+	var req policyEnforcementRequest
+	if err := json.NewDecoder(http.MaxBytesReader(w, r.Body, 1<<20)).Decode(&req); err != nil {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "invalid JSON body")
+		return
+	}
+	mode := normalizePolicyEnforcementOverride(req.PromptEnforcementOverride)
+	if mode == "" && strings.TrimSpace(req.PromptEnforcementOverride) == "" {
+		mode = normalizePolicyEnforcementOverride(req.Mode)
+	}
+	if !validPolicyEnforcementOverride(mode) {
+		writeError(w, http.StatusBadRequest, "INVALID_REQUEST", "prompt_enforcement_override must be empty, monitor, alert, or enforce")
+		return
+	}
+	if err := s.store.UpdatePromptEnforcementOverride(r.Context(), s.operatorOrgID, mode); err != nil {
+		s.logger.Error("operator update fleet emergency mode", "error", err)
+		writeError(w, http.StatusInternalServerError, "INTERNAL", "internal error")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]string{
+		"prompt_enforcement_override": mode,
 	})
 }

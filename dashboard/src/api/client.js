@@ -91,8 +91,6 @@ export const api = {
     updatePolicy: (id, data) => request(`/api/v1/policies/${id}`, { method: 'PUT', body: JSON.stringify(data) }),
     deletePolicy: (id) => request(`/api/v1/policies/${id}`, { method: 'DELETE' }),
     testPolicy: (data) => request('/api/v1/policies/test', { method: 'POST', body: JSON.stringify(data) }),
-    getPolicyEnforcement: () => request('/api/v1/policies/enforcement'),
-    updatePolicyEnforcement: (mode) => request('/api/v1/policies/enforcement', { method: 'PUT', body: JSON.stringify({ prompt_enforcement_override: mode }) }),
 
     // AI governance
     listAIGovernanceVendors: async () => {
