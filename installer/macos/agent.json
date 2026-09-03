@@ -1,0 +1,20 @@
+{
+  "agent_id": "",
+  "gateway_url": "",
+  "public_backend_url": "",
+  "public_gateway_url": "",
+  "enrollment_token": "",
+  "default_decision": "forward",
+  "listen_addr": "127.0.0.1:9090",
+  "prompt_capture_enabled": true,
+  "prompt_semantics_enabled": true,
+  "prompt_semantics_gateway_enabled": false,
+  "prompt_semantics_local_url": "http://127.0.0.1:17177/v1/classify",
+  "prompt_enforcement_mode": "enforce",
+  "prompt_fail_closed_surfaces": [
+    "browser_chromium",
+    "browser_safari",
+    "claude_code",
+    "cursor"
+  ]
+}

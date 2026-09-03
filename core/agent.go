@@ -8,12 +8,12 @@ import (
 	"net"
 	"net/http"
 	"os"
-	osuser "os/user"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/themisto/agent/core/adapter/iface"
+	"github.com/themisto/agent/core/aiactivity"
 	"github.com/themisto/agent/core/config"
 	"github.com/themisto/agent/core/cursorcleanup"
 	"github.com/themisto/agent/core/domain"
@@ -221,6 +221,11 @@ func (a *Agent) Start(ctx context.Context) error {
 	a.log.Info("phase: telemetry")
 	a.emitter = telemetry.NewEmitter(a.collector, a.gateway, cfg.GatewayURL, cfg.TelemetryFlushInterval, a.log)
 	a.gt.go_("telemetry-emitter", a.emitter.Run)
+	if discoverer, ok := a.adapter.(iface.EndpointAIDiscoverer); ok {
+		a.gt.go_("endpoint-ai-discovery", func(ctx context.Context) {
+			a.runEndpointAIDiscovery(ctx, discoverer, cfg)
+		})
+	}
 
 	a.collector.Emit("agent.started", &domain.EventPayload{
 		AgentID:   cfg.AgentID,
@@ -278,7 +283,6 @@ func (a *Agent) Start(ctx context.Context) error {
 			Data: map[string]interface{}{
 				"method":          "PROMPT",
 				"host":            "local-agent",
-				"path":            "/prompt-capture/service/desktop/allow/degraded_fail_open",
 				"decision":        "allow",
 				"status":          503,
 				"capture_stage":   "service",
@@ -337,6 +341,52 @@ func (a *Agent) Start(ctx context.Context) error {
 		return err
 	case <-ctx.Done():
 		return a.shutdown()
+	}
+}
+
+func (a *Agent) runEndpointAIDiscovery(ctx context.Context, discoverer iface.EndpointAIDiscoverer, cfg *domain.AgentConfig) {
+	const interval = 5 * time.Minute
+	run := func() {
+		observations, err := discoverer.DiscoverEndpointAI(ctx, a.engine.AIProducts())
+		if err != nil {
+			a.log.Warn("endpoint AI discovery unavailable", "error", err)
+			return
+		}
+		observedAt := time.Now().UTC()
+		bucket := observedAt.Truncate(interval).Format(time.RFC3339)
+		for _, observation := range observations {
+			event := aiactivity.NewObservedEvent(
+				observation.VendorKey,
+				observation.ProductKey,
+				observation.Surface,
+				observation.ActivityKind,
+				observation.SourceApplication,
+				cfg.AgentID,
+				strings.Join([]string{cfg.AgentID, observation.ProductKey, observation.Surface, observation.ActivityKind, bucket}, ":"),
+				observedAt,
+			)
+			if observation.Count > 0 {
+				event.Count = observation.Count
+			}
+			if err := event.Validate(); err != nil {
+				a.log.Warn("endpoint AI observation rejected locally", "error", err)
+				continue
+			}
+			_ = a.collector.Emit(aiactivity.EventName, &domain.EventPayload{
+				AgentID: cfg.AgentID, Timestamp: event.ObservedAt, Data: event.Data(),
+			})
+		}
+	}
+	run()
+	ticker := time.NewTicker(interval)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			run()
+		}
 	}
 }
 
@@ -485,6 +535,7 @@ func (a *Agent) newProxy() *transport.HTTPProxy {
 		Logger:                a.log,
 		PolicyVersionFn:       a.engine.Version,
 		ManagedInterceptionFn: a.engine.Interception,
+		ProductCatalogFn:      a.engine.AIProducts,
 	})
 }
 
@@ -636,7 +687,6 @@ func (a *Agent) emitAgentHeartbeat(cfg *domain.AgentConfig, listenerAlive bool, 
 			"agent_version":                     a.version,
 			"protocol_version":                  domain.ProtocolVersion,
 			"hostname":                          agentHostname(),
-			"agent_user":                        agentUser(),
 			"policy_version":                    a.engine.Version(),
 			"policy_fresh":                      policyFresh,
 			"uptime_seconds":                    int64(time.Since(a.startTime).Seconds()),
@@ -745,20 +795,6 @@ func agentHostname() string {
 		return ""
 	}
 	return strings.TrimSpace(host)
-}
-
-func agentUser() string {
-	if current, err := osuser.Current(); err == nil && current != nil {
-		if name := strings.TrimSpace(current.Username); name != "" {
-			return name
-		}
-	}
-	for _, key := range []string{"USERNAME", "USER"} {
-		if value := strings.TrimSpace(os.Getenv(key)); value != "" {
-			return value
-		}
-	}
-	return ""
 }
 
 func browserProtectionState(promptCaptureHealth string) string {

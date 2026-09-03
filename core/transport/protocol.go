@@ -38,9 +38,7 @@ func BuildWrapperHeaders(
 	if proc.PID != 0 {
 		h["X-Themisto-Process-PID"] = strconv.Itoa(proc.PID)
 	}
-	setNonEmpty(h, "X-Themisto-Process-Path", proc.Path)
 	setNonEmpty(h, "X-Themisto-Process-Name", proc.Name)
-	setNonEmpty(h, "X-Themisto-Process-User", proc.User)
 	setNonEmpty(h, "X-Themisto-Process-Bundle", proc.BundleID)
 	setNonEmpty(h, "X-Themisto-Process-Signer", proc.SignerID)
 	if proc.Signed {

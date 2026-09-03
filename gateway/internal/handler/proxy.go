@@ -208,6 +208,16 @@ func (h *ProxyHandler) handleTelemetry(w http.ResponseWriter, r *http.Request, d
 			accepted++
 			continue
 		}
+		if e.Name == "ai.activity.v1" {
+			activity, err := decodeAIActivity(e.Payload.Data, e.Timestamp, deviceID, orgID)
+			if err != nil {
+				h.logger.Warn("AI activity rejected", "error", err)
+				continue
+			}
+			h.telem.EmitAIActivity(activity)
+			accepted++
+			continue
+		}
 		if e.Name != "proxy.request" && e.Name != "dlp.match" {
 			continue
 		}
@@ -215,6 +225,10 @@ func (h *ProxyHandler) handleTelemetry(w http.ResponseWriter, r *http.Request, d
 		if e.Name == "dlp.match" {
 			data := e.Payload.Data
 			if data == nil {
+				continue
+			}
+			if key, found := forbiddenCentralTelemetryField(data); found {
+				h.logger.Warn("content-bearing DLP telemetry rejected", "field", key)
 				continue
 			}
 			host, _ := asString(data["host"])
@@ -232,9 +246,6 @@ func (h *ProxyHandler) handleTelemetry(w http.ResponseWriter, r *http.Request, d
 			}
 			if dlpEvt.Timestamp.IsZero() {
 				dlpEvt.Timestamp = time.Now()
-			}
-			if v, ok := asString(data["path"]); ok {
-				dlpEvt.RequestPath = v
 			}
 			if v, ok := asString(data["request_id"]); ok {
 				dlpEvt.RequestID = v
@@ -260,9 +271,6 @@ func (h *ProxyHandler) handleTelemetry(w http.ResponseWriter, r *http.Request, d
 			if v, ok := asString(data["reason_code"]); ok {
 				dlpEvt.ReasonCode = v
 			}
-			if v, ok := asString(data["reason_detail"]); ok {
-				dlpEvt.ReasonDetail = v
-			}
 			if v, ok := asString(data["semantic_source"]); ok {
 				dlpEvt.SemanticSource = strings.TrimSpace(v)
 			}
@@ -274,9 +282,6 @@ func (h *ProxyHandler) handleTelemetry(w http.ResponseWriter, r *http.Request, d
 			}
 			if v, ok := asBool(data["semantic_ambiguous"]); ok {
 				dlpEvt.SemanticAmbiguous = v
-			}
-			if v, ok := asString(data["semantic_reason"]); ok {
-				dlpEvt.SemanticReason = strings.TrimSpace(v)
 			}
 			if v, ok := asString(data["severity"]); ok {
 				dlpEvt.Severity = strings.ToLower(strings.TrimSpace(v))
@@ -316,26 +321,6 @@ func (h *ProxyHandler) handleTelemetry(w http.ResponseWriter, r *http.Request, d
 					}
 				}
 			}
-			if v, ok := data["matched_patterns"].([]interface{}); ok {
-				for _, s := range v {
-					if str, ok := s.(string); ok {
-						dlpEvt.MatchedPatterns = append(dlpEvt.MatchedPatterns, str)
-					}
-				}
-			}
-			if v, ok := data["matched_fields"].([]interface{}); ok {
-				for _, s := range v {
-					if str, ok := s.(string); ok {
-						dlpEvt.MatchedFields = append(dlpEvt.MatchedFields, str)
-					}
-				}
-			}
-			if v, ok := asString(data["request_body"]); ok {
-				dlpEvt.RequestBody = v
-			}
-			if v, ok := asBool(data["request_body_truncated"]); ok {
-				dlpEvt.RequestBodyTruncated = v
-			}
 			if strings.TrimSpace(dlpEvt.Protocol) == "" {
 				dlpEvt.Protocol = "http"
 			}
@@ -358,6 +343,10 @@ func (h *ProxyHandler) handleTelemetry(w http.ResponseWriter, r *http.Request, d
 
 		data := e.Payload.Data
 		if data == nil {
+			continue
+		}
+		if key, found := forbiddenCentralTelemetryField(data); found {
+			h.logger.Warn("content-bearing request telemetry rejected", "field", key)
 			continue
 		}
 
@@ -391,9 +380,6 @@ func (h *ProxyHandler) handleTelemetry(w http.ResponseWriter, r *http.Request, d
 		}
 
 		// Map payload data back to Event fields
-		if v, ok := asString(data["path"]); ok {
-			event.RequestPath = v
-		}
 		if v, ok := asInt(data["status"]); ok {
 			event.ResponseStatus = v
 		}
@@ -491,7 +477,7 @@ func sanitizedAgentStatusData(data map[string]interface{}) map[string]interface{
 		"uptime_seconds": true, "gateway_connected": true, "proxy_listener_alive": true,
 		"proxy_integrity": true, "prompt_capture": true, "semantic_classifier": true,
 		"browser_protection": true, "service_status": true, "auto_reregister": true,
-		"hostname": true, "agent_user": true, "host": true, "port": true, "remediation": true,
+		"hostname": true, "host": true, "port": true, "remediation": true,
 		"policy_fresh": true, "classifier_required": true, "classifier_healthy": true,
 		"prompt_enforcement_mode": true, "effective_prompt_enforcement_mode": true,
 		"protection_state": true,
@@ -509,6 +495,42 @@ func sanitizedAgentStatusData(data map[string]interface{}) map[string]interface{
 		}
 	}
 	return out
+}
+
+var forbiddenCentralTelemetryKeys = map[string]struct{}{
+	"path": {}, "prompt": {}, "prompt_text": {}, "request_body": {}, "response_body": {},
+	"file": {}, "files": {}, "file_path": {}, "local_path": {}, "matched_patterns": {},
+	"matched_fields": {}, "matched_excerpts": {}, "mcp_payload": {}, "mcp_arguments": {},
+	"credentials": {}, "api_key": {}, "access_token": {}, "command_arguments": {},
+	"repository_contents": {}, "reason_detail": {}, "semantic_reason": {},
+}
+
+func forbiddenCentralTelemetryField(data map[string]interface{}) (string, bool) {
+	var inspect func(map[string]interface{}) (string, bool)
+	inspect = func(values map[string]interface{}) (string, bool) {
+		for key, value := range values {
+			normalized := strings.ToLower(strings.TrimSpace(key))
+			if _, forbidden := forbiddenCentralTelemetryKeys[normalized]; forbidden {
+				return key, true
+			}
+			switch nested := value.(type) {
+			case map[string]interface{}:
+				if key, found := inspect(nested); found {
+					return key, true
+				}
+			case []interface{}:
+				for _, item := range nested {
+					if object, ok := item.(map[string]interface{}); ok {
+						if key, found := inspect(object); found {
+							return key, true
+						}
+					}
+				}
+			}
+		}
+		return "", false
+	}
+	return inspect(data)
 }
 
 func sanitizeSurfaceStates(raw interface{}) (map[string]string, bool) {
@@ -566,7 +588,6 @@ func (h *ProxyHandler) emitEvent(deviceID, orgID string, r *http.Request, status
 		OrgID:          orgID,
 		RequestMethod:  r.Method,
 		RequestHost:    host,
-		RequestPath:    r.URL.Path,
 		RequestPort:    port,
 		ResponseStatus: status,
 		LatencyMs:      int(latency.Milliseconds()),

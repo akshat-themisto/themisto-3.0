@@ -544,7 +544,7 @@ func ensureInstallerConfigDefaults(cfg map[string]interface{}) {
 		cfg["prompt_semantics_local_url"] = "http://127.0.0.1:17177/v1/classify"
 	}
 	if _, ok := cfg["prompt_semantics_gateway_enabled"]; !ok {
-		cfg["prompt_semantics_gateway_enabled"] = true
+		cfg["prompt_semantics_gateway_enabled"] = false
 	}
 	if strings.TrimSpace(getString(cfg, "prompt_semantics_local_timeout")) == "" {
 		cfg["prompt_semantics_local_timeout"] = "1500ms"

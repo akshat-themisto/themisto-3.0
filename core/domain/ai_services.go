@@ -1,71 +1,121 @@
 package domain
 
 import (
+	_ "embed"
+	"encoding/json"
 	"net"
 	"net/url"
+	"sort"
 	"strings"
 )
 
-// AIServiceInfo describes a known AI service for shadow AI detection.
+// AIProductCatalogEntry is the endpoint-facing, data-driven description of an
+// AI product. Built-in entries are compiled into the agent and policy entries
+// may extend (but not silently rewrite) them at runtime.
+type AIProductCatalogEntry struct {
+	VendorKey          string   `json:"vendor_key"`
+	ProductKey         string   `json:"product_key"`
+	DisplayName        string   `json:"display_name"`
+	FunctionalCategory string   `json:"functional_category"`
+	Domains            []string `json:"domains,omitempty"`
+	ProcessNames       []string `json:"process_names,omitempty"`
+	BundleIDs          []string `json:"bundle_ids,omitempty"`
+	Surfaces           []string `json:"surfaces,omitempty"`
+	MCPConfigKeys      []string `json:"mcp_config_keys,omitempty"`
+	APIOnly            bool     `json:"api_only,omitempty"`
+}
+
+// AIServiceInfo is retained as the compatibility view used by routing and
+// policy. Vendor-specific facts originate in the catalog, not ledger code.
 type AIServiceInfo struct {
-	Vendor     string // short identifier, e.g. "openai"
-	Name       string // display name, e.g. "OpenAI"
-	Category   string // "ai_llm", "ai_image", "ai_code", "ai_search"
-	RiskTier   string // "high", "medium", "low"
-	Sanctioned bool   // whether sanctioned by default (org can override)
+	Vendor     string
+	Product    string
+	Name       string
+	Category   string
+	RiskTier   string
+	Sanctioned bool
+	Surfaces   []string
 }
 
-// knownAIServices maps exact hostnames to their AI service metadata.
-var knownAIServices = map[string]AIServiceInfo{
-	"api.openai.com":                      {Vendor: "openai", Name: "OpenAI API", Category: "ai_llm", RiskTier: "high"},
-	"chat.openai.com":                     {Vendor: "openai", Name: "ChatGPT", Category: "ai_llm", RiskTier: "high"},
-	"chatgpt.com":                         {Vendor: "openai", Name: "ChatGPT", Category: "ai_llm", RiskTier: "high"},
-	"platform.openai.com":                 {Vendor: "openai", Name: "OpenAI Platform", Category: "ai_llm", RiskTier: "high"},
-	"api.anthropic.com":                   {Vendor: "anthropic", Name: "Claude API", Category: "ai_llm", RiskTier: "high"},
-	"claude.ai":                           {Vendor: "anthropic", Name: "Claude", Category: "ai_llm", RiskTier: "high"},
-	"generativelanguage.googleapis.com":   {Vendor: "google", Name: "Gemini API", Category: "ai_llm", RiskTier: "high"},
-	"content-gemini.googleapis.com":       {Vendor: "google", Name: "Gemini API", Category: "ai_llm", RiskTier: "high"},
-	"gemini.google.com":                   {Vendor: "google", Name: "Gemini", Category: "ai_llm", RiskTier: "high"},
-	"clients6.google.com":                 {Vendor: "google", Name: "Gemini Web", Category: "ai_llm", RiskTier: "high"},
-	"aistudio.google.com":                 {Vendor: "google", Name: "Google AI Studio", Category: "ai_llm", RiskTier: "high"},
-	"notebooklm.google.com":               {Vendor: "google", Name: "NotebookLM", Category: "ai_llm", RiskTier: "medium"},
-	"bard.google.com":                     {Vendor: "google", Name: "Bard", Category: "ai_llm", RiskTier: "high"},
-	"copilot.microsoft.com":               {Vendor: "microsoft", Name: "Copilot", Category: "ai_llm", RiskTier: "medium"},
-	"api.githubcopilot.com":               {Vendor: "github", Name: "GitHub Copilot", Category: "ai_code", RiskTier: "high"},
-	"copilot-proxy.githubusercontent.com": {Vendor: "github", Name: "GitHub Copilot", Category: "ai_code", RiskTier: "high"},
-	"huggingface.co":                      {Vendor: "huggingface", Name: "HuggingFace", Category: "ai_llm", RiskTier: "medium"},
-	"api-inference.huggingface.co":        {Vendor: "huggingface", Name: "HuggingFace Inference", Category: "ai_llm", RiskTier: "medium"},
-	"api.cohere.ai":                       {Vendor: "cohere", Name: "Cohere", Category: "ai_llm", RiskTier: "high"},
-	"api.cohere.com":                      {Vendor: "cohere", Name: "Cohere", Category: "ai_llm", RiskTier: "high"},
-	"api.mistral.ai":                      {Vendor: "mistral", Name: "Mistral AI", Category: "ai_llm", RiskTier: "high"},
-	"api.together.ai":                     {Vendor: "together", Name: "Together AI", Category: "ai_llm", RiskTier: "high"},
-	"api.perplexity.ai":                   {Vendor: "perplexity", Name: "Perplexity API", Category: "ai_llm", RiskTier: "medium"},
-	"perplexity.ai":                       {Vendor: "perplexity", Name: "Perplexity", Category: "ai_llm", RiskTier: "medium"},
-	"cursor.sh":                           {Vendor: "cursor", Name: "Cursor IDE", Category: "ai_code", RiskTier: "high"},
-	"api2.cursor.sh":                      {Vendor: "cursor", Name: "Cursor IDE", Category: "ai_code", RiskTier: "high"},
-	"aicursor.com":                        {Vendor: "cursor", Name: "Cursor IDE", Category: "ai_code", RiskTier: "high"},
-	"api.stability.ai":                    {Vendor: "stability", Name: "Stability AI", Category: "ai_image", RiskTier: "medium"},
-	"midjourney.com":                      {Vendor: "midjourney", Name: "Midjourney", Category: "ai_image", RiskTier: "low"},
-	"poe.com":                             {Vendor: "quora", Name: "Poe", Category: "ai_llm", RiskTier: "high"},
-	"character.ai":                        {Vendor: "characterai", Name: "Character.AI", Category: "ai_llm", RiskTier: "high"},
-	"api.replicate.com":                   {Vendor: "replicate", Name: "Replicate", Category: "ai_llm", RiskTier: "medium"},
-	"replicate.com":                       {Vendor: "replicate", Name: "Replicate", Category: "ai_llm", RiskTier: "medium"},
-	"writesonic.com":                      {Vendor: "writesonic", Name: "Writesonic", Category: "ai_llm", RiskTier: "medium"},
-	"jasper.ai":                           {Vendor: "jasper", Name: "Jasper AI", Category: "ai_llm", RiskTier: "medium"},
-	"api.groq.com":                        {Vendor: "groq", Name: "Groq", Category: "ai_llm", RiskTier: "high"},
-	"console.groq.com":                    {Vendor: "groq", Name: "Groq Console", Category: "ai_llm", RiskTier: "medium"},
-	"api.x.ai":                            {Vendor: "xai", Name: "xAI Grok", Category: "ai_llm", RiskTier: "high"},
-	"windsurf.ai":                         {Vendor: "windsurf", Name: "Windsurf", Category: "ai_code", RiskTier: "high"},
-	"api.codeium.com":                     {Vendor: "windsurf", Name: "Windsurf", Category: "ai_code", RiskTier: "high"},
+//go:embed ai_products.json
+var builtInAIProductsJSON []byte
+
+var builtInAIProducts = mustLoadAIProductCatalog(builtInAIProductsJSON)
+
+// BuiltInAIProductCatalog returns an isolated copy of the compiled endpoint
+// catalog so callers cannot mutate global detection behavior.
+func BuiltInAIProductCatalog() []AIProductCatalogEntry {
+	return cloneAIProductCatalog(builtInAIProducts)
 }
 
-var vendorOwnedDomains = map[string][]string{
-	"anthropic": {"anthropic.com", "claude.ai"},
-	"cursor":    {"cursor.sh", "aicursor.com"},
-	"github":    {"githubcopilot.com", "githubusercontent.com", "github.com"},
-	"google":    {"google.com", "googleapis.com", "googleusercontent.com", "gstatic.com"},
-	"openai":    {"openai.com", "chatgpt.com", "oaistatic.com", "oaiusercontent.com"},
-	"windsurf":  {"windsurf.ai", "codeium.com"},
+// MergeAIProductCatalog appends valid policy-delivered products. Existing
+// vendor/product keys remain authoritative to prevent a policy from changing
+// the meaning of an already deployed product key.
+func MergeAIProductCatalog(base, additions []AIProductCatalogEntry) []AIProductCatalogEntry {
+	out := normalizeAIProductCatalog(base)
+	seen := make(map[string]struct{}, len(out))
+	for _, entry := range out {
+		seen[entry.VendorKey+"/"+entry.ProductKey] = struct{}{}
+	}
+	for _, entry := range normalizeAIProductCatalog(additions) {
+		key := entry.VendorKey + "/" + entry.ProductKey
+		if _, exists := seen[key]; exists {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, entry)
+	}
+	return out
+}
+
+// LookupAIProduct evaluates host and optional process metadata against a
+// supplied catalog. Exact domain matches take precedence over suffix matches.
+func LookupAIProduct(catalog []AIProductCatalogEntry, host string, process ProcessInfo) (AIProductCatalogEntry, bool) {
+	host = NormalizeHost(host)
+	processName := normalizeCatalogValue(process.Name)
+	bundleID := normalizeCatalogValue(process.BundleID)
+	for _, entry := range catalog {
+		for _, domain := range entry.Domains {
+			if host != "" && host == NormalizeHost(domain) {
+				return entry, true
+			}
+		}
+	}
+	for _, entry := range catalog {
+		for _, domain := range entry.Domains {
+			domain = NormalizeHost(domain)
+			if host != "" && domain != "" && strings.HasSuffix(host, "."+domain) {
+				return entry, true
+			}
+		}
+		if containsCatalogValue(entry.BundleIDs, bundleID) {
+			return entry, true
+		}
+	}
+	for _, entry := range catalog {
+		if len(entry.BundleIDs) == 0 && containsCatalogValue(entry.ProcessNames, processName) {
+			return entry, true
+		}
+	}
+	for _, entry := range catalog {
+		if containsCatalogValue(entry.ProcessNames, processName) {
+			return entry, true
+		}
+	}
+	return AIProductCatalogEntry{}, false
+}
+
+// LookupAIProductByKey returns the catalog entry for an exact stable product
+// key. It is used by endpoint discovery where a process or local
+// configuration provides the observation instead of a network hostname.
+func LookupAIProductByKey(catalog []AIProductCatalogEntry, productKey string) (AIProductCatalogEntry, bool) {
+	productKey = normalizeCatalogValue(productKey)
+	for _, entry := range catalog {
+		if normalizeCatalogValue(entry.ProductKey) == productKey {
+			return entry, true
+		}
+	}
+	return AIProductCatalogEntry{}, false
 }
 
 // NormalizeHost canonicalizes host-like values coming from request targets,
@@ -80,72 +130,158 @@ func NormalizeHost(raw string) string {
 			raw = parsed.Host
 		}
 	}
-	if host, port, err := net.SplitHostPort(raw); err == nil {
-		if port != "" {
-			raw = host
-		}
+	if host, port, err := net.SplitHostPort(raw); err == nil && port != "" {
+		raw = host
 	}
 	raw = strings.Trim(raw, "[]")
-	raw = strings.TrimSuffix(raw, ".")
-	return raw
+	return strings.TrimSuffix(raw, ".")
 }
 
-// LookupAIService returns the AIServiceInfo for the given hostname if it is a known AI service.
-// It checks exact matches first, then suffix matches for subdomains.
+// LookupAIService uses the built-in catalog for compatibility with existing
+// routing callers.
 func LookupAIService(host string) (AIServiceInfo, bool) {
-	host = NormalizeHost(host)
-	if info, ok := knownAIServices[host]; ok {
-		return info, true
+	entry, ok := LookupAIProduct(builtInAIProducts, host, ProcessInfo{})
+	if !ok {
+		return AIServiceInfo{}, false
 	}
-	// Check if host is a subdomain of a known AI service.
-	for known, info := range knownAIServices {
-		if strings.HasSuffix(host, "."+known) {
-			return info, true
-		}
-	}
-	return AIServiceInfo{}, false
+	return serviceInfo(entry), true
 }
 
 // InferAIService expands host-only matching with Origin / Referer hints for
-// vendor-owned helper domains used by browser-based AI products.
+// helper domains. A signal only promotes traffic when both hosts are owned by
+// the same catalog product/vendor domain family.
 func InferAIService(host string, signals ...string) (AIServiceInfo, bool) {
 	if info, ok := LookupAIService(host); ok {
 		return info, true
 	}
-
 	host = NormalizeHost(host)
 	if host == "" {
 		return AIServiceInfo{}, false
 	}
-
 	for _, signal := range signals {
-		signalHost := NormalizeHost(signal)
-		if signalHost == "" {
+		entry, ok := LookupAIProduct(builtInAIProducts, NormalizeHost(signal), ProcessInfo{})
+		if !ok || !catalogEntryOwnsHost(entry, host) {
 			continue
 		}
-		info, ok := LookupAIService(signalHost)
-		if !ok {
-			continue
-		}
-		if vendorOwnsHost(info.Vendor, host) {
-			return info, true
-		}
+		return serviceInfo(entry), true
 	}
-
 	return AIServiceInfo{}, false
 }
 
-func vendorOwnsHost(vendor, host string) bool {
+func catalogEntryOwnsHost(entry AIProductCatalogEntry, host string) bool {
 	host = NormalizeHost(host)
-	if host == "" {
-		return false
+	for _, domain := range entry.Domains {
+		domain = NormalizeHost(domain)
+		if registrableDomainFamily(host) == registrableDomainFamily(domain) {
+			return true
+		}
 	}
-	for _, owned := range vendorOwnedDomains[strings.ToLower(strings.TrimSpace(vendor))] {
-		owned = NormalizeHost(owned)
-		if owned == "" {
+	return false
+}
+
+func registrableDomainFamily(host string) string {
+	parts := strings.Split(NormalizeHost(host), ".")
+	if len(parts) < 2 {
+		return NormalizeHost(host)
+	}
+	return strings.Join(parts[len(parts)-2:], ".")
+}
+
+func serviceInfo(entry AIProductCatalogEntry) AIServiceInfo {
+	return AIServiceInfo{
+		Vendor:   entry.VendorKey,
+		Product:  entry.ProductKey,
+		Name:     entry.DisplayName,
+		Category: legacyServiceCategory(entry.FunctionalCategory),
+		Surfaces: append([]string(nil), entry.Surfaces...),
+	}
+}
+
+func legacyServiceCategory(functionalCategory string) string {
+	switch functionalCategory {
+	case "coding_agent":
+		return "ai_code"
+	case "image_generation":
+		return "ai_image"
+	default:
+		return "ai_llm"
+	}
+}
+
+func mustLoadAIProductCatalog(raw []byte) []AIProductCatalogEntry {
+	var entries []AIProductCatalogEntry
+	if err := json.Unmarshal(raw, &entries); err != nil {
+		panic("invalid embedded AI product catalog: " + err.Error())
+	}
+	return normalizeAIProductCatalog(entries)
+}
+
+func normalizeAIProductCatalog(entries []AIProductCatalogEntry) []AIProductCatalogEntry {
+	out := make([]AIProductCatalogEntry, 0, len(entries))
+	for _, entry := range entries {
+		entry.VendorKey = normalizeCatalogValue(entry.VendorKey)
+		entry.ProductKey = normalizeCatalogValue(entry.ProductKey)
+		entry.FunctionalCategory = normalizeCatalogValue(entry.FunctionalCategory)
+		entry.DisplayName = strings.TrimSpace(entry.DisplayName)
+		if entry.VendorKey == "" || entry.ProductKey == "" || entry.DisplayName == "" {
 			continue
 		}
-		if host == owned || strings.HasSuffix(host, "."+owned) {
+		if entry.FunctionalCategory == "" {
+			entry.FunctionalCategory = "unknown"
+		}
+		entry.Domains = normalizeCatalogValues(entry.Domains, true)
+		entry.ProcessNames = normalizeCatalogValues(entry.ProcessNames, false)
+		entry.BundleIDs = normalizeCatalogValues(entry.BundleIDs, false)
+		entry.Surfaces = normalizeCatalogValues(entry.Surfaces, false)
+		entry.MCPConfigKeys = normalizeCatalogValues(entry.MCPConfigKeys, false)
+		out = append(out, entry)
+	}
+	return out
+}
+
+func cloneAIProductCatalog(entries []AIProductCatalogEntry) []AIProductCatalogEntry {
+	out := make([]AIProductCatalogEntry, len(entries))
+	for i, entry := range entries {
+		out[i] = entry
+		out[i].Domains = append([]string(nil), entry.Domains...)
+		out[i].ProcessNames = append([]string(nil), entry.ProcessNames...)
+		out[i].BundleIDs = append([]string(nil), entry.BundleIDs...)
+		out[i].Surfaces = append([]string(nil), entry.Surfaces...)
+		out[i].MCPConfigKeys = append([]string(nil), entry.MCPConfigKeys...)
+	}
+	return out
+}
+
+func normalizeCatalogValues(values []string, host bool) []string {
+	set := make(map[string]struct{}, len(values))
+	for _, value := range values {
+		if host {
+			value = NormalizeHost(value)
+		} else {
+			value = normalizeCatalogValue(value)
+		}
+		if value != "" {
+			set[value] = struct{}{}
+		}
+	}
+	out := make([]string, 0, len(set))
+	for value := range set {
+		out = append(out, value)
+	}
+	sort.Strings(out)
+	return out
+}
+
+func normalizeCatalogValue(value string) string {
+	return strings.ToLower(strings.TrimSpace(value))
+}
+
+func containsCatalogValue(values []string, target string) bool {
+	if target == "" {
+		return false
+	}
+	for _, value := range values {
+		if normalizeCatalogValue(value) == target {
 			return true
 		}
 	}

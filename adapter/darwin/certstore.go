@@ -21,6 +21,7 @@ import (
 
 const (
 	systemKeychain      = "/Library/Keychains/System.keychain"
+	systemCertStoreDir  = "/Library/Application Support/Themisto/certs"
 	certLabelPrefix     = "Themisto-CA-"
 	loginKeychainRelDir = "Library/Keychains/login.keychain-db"
 )
@@ -72,7 +73,7 @@ func (cs *darwinCertStore) InstallCA(ctx context.Context, id string, der []byte)
 	if err := installTrustedCert(ctx, systemKeychain, tmpFile, true); err == nil {
 		installedKeychain = systemKeychain
 	} else {
-		cs.log.Warn("system keychain install failed, trying login keychain", "id", id, "error", err)
+		cs.log.Warn("system keychain install failed", "id", id, "error", err)
 		if certTrustedInKeychain(ctx, systemKeychain, tmpFile) {
 			installedKeychain = systemKeychain
 		}
@@ -216,6 +217,9 @@ func indexPath(id string) string {
 }
 
 func certStoreDir() string {
+	if os.Geteuid() == 0 {
+		return systemCertStoreDir
+	}
 	if cfgDir, err := os.UserConfigDir(); err == nil && strings.TrimSpace(cfgDir) != "" {
 		return filepath.Join(cfgDir, "Themisto", "certs")
 	}
@@ -247,6 +251,11 @@ func keychainSearchOrder(preferred string) []string {
 }
 
 func userLoginKeychain() string {
+	// A LaunchDaemon runs as root and must never install trust into root's
+	// login keychain. System trust is required for device-wide interception.
+	if os.Geteuid() == 0 {
+		return ""
+	}
 	home, err := os.UserHomeDir()
 	if err != nil || strings.TrimSpace(home) == "" {
 		return ""

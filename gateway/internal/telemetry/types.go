@@ -11,6 +11,25 @@ type AgentStatusEvent struct {
 	Data      map[string]interface{}
 }
 
+// AIActivityEvent is the canonical, content-free endpoint observation. It is
+// persisted separately from request telemetry and connector facts.
+type AIActivityEvent struct {
+	Timestamp         time.Time
+	DeviceID          string
+	OrgID             string
+	VendorKey         string
+	ProductKey        string
+	Surface           string
+	ActivityKind      string
+	SourceApplication string
+	ModelIdentifier   string
+	ProjectIdentifier string
+	OpaqueSessionHash string
+	Count             int64
+	SourceKey         string
+	FreshnessAt       time.Time
+}
+
 type Event struct {
 	Timestamp       time.Time
 	DeviceID        string

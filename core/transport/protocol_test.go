@@ -23,9 +23,7 @@ func TestBuildWrapperHeaders_AllFields(t *testing.T) {
 		"X-Themisto-Service-Category":  "ai_llm",
 		"X-Themisto-AI-Vendor":         "openai",
 		"X-Themisto-Process-PID":       "99",
-		"X-Themisto-Process-Path":      "/bin/test",
 		"X-Themisto-Process-Name":      "test",
-		"X-Themisto-Process-User":      "admin",
 		"X-Themisto-Process-Bundle":    "com.test",
 		"X-Themisto-Process-Signed":    "true",
 		"X-Themisto-Process-Signer":    "Test Inc.",
@@ -47,6 +45,11 @@ func TestBuildWrapperHeaders_AllFields(t *testing.T) {
 	// Timestamp should be present.
 	if _, ok := h["X-Themisto-Timestamp"]; !ok {
 		t.Error("missing X-Themisto-Timestamp")
+	}
+	for _, forbidden := range []string{"X-Themisto-Process-Path", "X-Themisto-Process-User"} {
+		if _, ok := h[forbidden]; ok {
+			t.Errorf("privacy-bearing header %s must be absent", forbidden)
+		}
 	}
 }
 

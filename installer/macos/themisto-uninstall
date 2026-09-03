@@ -27,6 +27,24 @@ if [ -x "/usr/local/bin/themisto-agent" ]; then
   /usr/local/bin/themisto-agent -proxy-off >/dev/null 2>&1 || true
 fi
 
+# Remove only certificates indexed as installed by Themisto. This avoids
+# touching unrelated enterprise trust roots.
+CERT_INDEX_DIR="/Library/Application Support/Themisto/certs"
+if [ -d "$CERT_INDEX_DIR" ]; then
+  echo "  Removing Themisto certificate trust..."
+  for index in "$CERT_INDEX_DIR"/*.fingerprint; do
+    [ -f "$index" ] || continue
+    fingerprint="$(sed -n 's/.*"fingerprint":"\([0-9a-fA-F]*\)".*/\1/p' "$index")"
+    if [ -z "$fingerprint" ]; then
+      fingerprint="$(tr -d '[:space:]' < "$index")"
+    fi
+    case "$fingerprint" in
+      *[!0-9a-fA-F]*|'') ;;
+      *) /usr/bin/security delete-certificate -Z "$fingerprint" /Library/Keychains/System.keychain >/dev/null 2>&1 || true ;;
+    esac
+  done
+fi
+
 # ── Remove files ────────────────────────────────────────────────────────────
 
 echo "  Removing application bundle..."
@@ -36,7 +54,9 @@ echo "  Removing binaries..."
 rm -f /usr/local/bin/themisto-agent
 rm -f /usr/local/bin/themisto-service
 rm -f /usr/local/bin/themisto-activate
+rm -f /usr/local/bin/themisto-rollback
 rm -f /usr/local/bin/themisto-uninstall
+rm -rf /usr/local/share/themisto
 
 echo "  Removing launchd plist..."
 rm -f "$PLIST"
@@ -49,6 +69,12 @@ rm -rf /var/log/themisto
 
 echo "  Removing proxy state..."
 rm -rf "/Library/Application Support/Themisto"
+
+echo "  Removing desktop startup entries..."
+for user_home in /Users/*; do
+  [ -d "$user_home" ] || continue
+  rm -f "$user_home/Library/LaunchAgents/com.themisto.desktop.plist"
+done
 
 # ── Forget the package receipt ──────────────────────────────────────────────
 

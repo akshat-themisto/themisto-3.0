@@ -1,0 +1,27 @@
+#!/bin/sh
+set -eu
+
+BACKUP="/Library/Application Support/Themisto/rollback/latest"
+PLIST="/Library/LaunchDaemons/com.themisto.agent.plist"
+LABEL="com.themisto.agent"
+
+if [ "$(id -u)" -ne 0 ]; then
+  echo "error: run as root (use sudo)" >&2
+  exit 1
+fi
+if [ ! -x "$BACKUP/themisto-agent" ]; then
+  echo "error: no previous agent binary is available for rollback" >&2
+  exit 1
+fi
+
+/bin/launchctl bootout "system/$LABEL" >/dev/null 2>&1 || true
+[ ! -x /usr/local/bin/themisto-agent ] || /usr/local/bin/themisto-agent -proxy-off >/dev/null 2>&1 || true
+cp -p "$BACKUP/themisto-agent" /usr/local/bin/themisto-agent
+[ ! -f "$BACKUP/com.themisto.agent.plist" ] || cp -p "$BACKUP/com.themisto.agent.plist" "$PLIST"
+[ ! -f "$BACKUP/agent.json" ] || cp -p "$BACKUP/agent.json" /etc/themisto/agent.json
+chown root:wheel /usr/local/bin/themisto-agent "$PLIST"
+chmod 0755 /usr/local/bin/themisto-agent
+chmod 0644 "$PLIST"
+/bin/launchctl bootstrap system "$PLIST"
+/bin/launchctl kickstart -k "system/$LABEL"
+echo "Themisto Agent rolled back to the previous installed version."

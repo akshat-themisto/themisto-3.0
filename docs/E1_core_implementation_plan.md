@@ -123,10 +123,8 @@ All custom headers use the `X-Themisto-` prefix. The protocol version header is 
 | `X-Themisto-Agent-ID` | `AgentConfig.AgentID` | `a3f8c1...` (UUID) |
 | `X-Themisto-Request-ID` | Generated per request (UUID v4) | `d7e2a0...` |
 | `X-Themisto-Timestamp` | `time.Now().UTC().Format(time.RFC3339Nano)` | `2025-06-15T12:34:56.789Z` |
-| `X-Themisto-Process-Path` | `ProcessInfo.Path` | `/usr/bin/curl` |
 | `X-Themisto-Process-Name` | `ProcessInfo.Name` | `curl` |
 | `X-Themisto-Process-PID` | `ProcessInfo.PID` (string) | `12345` |
-| `X-Themisto-Process-User` | `ProcessInfo.User` | `jdoe` |
 | `X-Themisto-Process-Signed` | `ProcessInfo.Signed` (bool string) | `true` |
 | `X-Themisto-Process-Signer` | `ProcessInfo.SignerID` | `Apple Inc.` |
 | `X-Themisto-Process-Bundle` | `ProcessInfo.BundleID` | `com.apple.Safari` |
@@ -135,6 +133,9 @@ All custom headers use the `X-Themisto-` prefix. The protocol version header is 
 | `X-Themisto-Rule-ID` | The rule ID that produced the decision | `rule-17` |
 | `X-Themisto-Network-Interface` | `NetworkInfo.PrimaryInterface()` | `en0` |
 | `X-Themisto-VPN-Active` | `NetworkInfo.IsVPNActive()` (bool string) | `false` |
+
+Executable paths and OS usernames are intentionally excluded because central telemetry
+must not contain local file paths or infer a corporate identity from a local account.
 
 ### Construction Rules
 

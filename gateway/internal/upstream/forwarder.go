@@ -7,6 +7,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"strings"
 	"time"
 )
 
@@ -46,7 +47,7 @@ func (f *Forwarder) Forward(w http.ResponseWriter, r *http.Request) (status int,
 
 	copyHeaders(outReq.Header, r.Header)
 	removeHopHeaders(outReq.Header)
-	outReq.Header.Del("X-Themisto-Protocol")
+	removeInternalHeaders(outReq.Header)
 
 	resp, err := f.client.Do(outReq)
 	if err != nil {
@@ -60,6 +61,14 @@ func (f *Forwarder) Forward(w http.ResponseWriter, r *http.Request) (status int,
 
 	written, _ := io.Copy(w, resp.Body)
 	return resp.StatusCode, written, nil
+}
+
+func removeInternalHeaders(h http.Header) {
+	for key := range h {
+		if strings.HasPrefix(strings.ToLower(key), "x-themisto-") {
+			h.Del(key)
+		}
+	}
 }
 
 // Tunnel opens a raw CONNECT tunnel and pipes bytes between the client and

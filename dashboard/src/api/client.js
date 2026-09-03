@@ -152,6 +152,25 @@ export const api = {
         return request(`/api/v1/ai-usage?${qs}`);
     },
 
+    // AI Ledger (admin/owner)
+    aiLedgerSummary: () => request('/api/v1/ai-ledger/summary'),
+    aiLedgerProducts: () => request('/api/v1/ai-ledger/products'),
+    aiLedgerPeople: () => request('/api/v1/ai-ledger/people'),
+    aiLedgerFindings: (params = {}) => {
+        const qs = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v))).toString();
+        return request('/api/v1/ai-ledger/findings?' + qs);
+    },
+    aiLedgerSources: () => request('/api/v1/ai-ledger/sources'),
+    aiLedgerConnectorTypes: () => request('/api/v1/ai-ledger/connector-types'),
+    aiLedgerCreateConnector: (data) => request('/api/v1/ai-ledger/connectors', { method: 'POST', body: JSON.stringify(data) }),
+    aiLedgerConnectorStatus: (id) => request('/api/v1/ai-ledger/connectors/' + encodeURIComponent(id)),
+    aiLedgerSyncConnector: (id) => request('/api/v1/ai-ledger/connectors/' + encodeURIComponent(id) + '/sync', { method: 'POST' }),
+    aiLedgerDirectoryUsers: () => request('/api/v1/ai-ledger/directory-users'),
+    aiLedgerAssignDeviceUser: (data) => request('/api/v1/ai-ledger/device-user-assignments', { method: 'POST', body: JSON.stringify(data) }),
+    aiLedgerCSVValidate: (csvData) => request('/api/v1/ai-ledger/csv/validate', { method: 'POST', body: JSON.stringify({ csv_data: csvData }) }),
+    aiLedgerCSVCommit: (csvData, sourceIdentifier = '') => request('/api/v1/ai-ledger/csv/commit', { method: 'POST', body: JSON.stringify({ csv_data: csvData, source_identifier: sourceIdentifier }) }),
+    aiLedgerExportURL: () => API_BASE_URL + '/api/v1/ai-ledger/export',
+
     // DLP Events
     listDLPEvents: (params = {}) => {
         const qs = new URLSearchParams(Object.fromEntries(Object.entries(params).filter(([, v]) => v))).toString();

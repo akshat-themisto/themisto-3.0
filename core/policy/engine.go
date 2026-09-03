@@ -20,6 +20,7 @@ type DefaultEngine struct {
 	rules                     []domain.PolicyRule
 	version                   string
 	interception              domain.PolicyInterception
+	aiProducts                []domain.AIProductCatalogEntry
 	promptEnforcementOverride string
 	defaultDecision           domain.Decision
 	compiled                  []compiledRule
@@ -38,7 +39,10 @@ type conditionMatcher struct {
 // NewEngine creates an engine with the given default decision for unmatched
 // requests.
 func NewEngine(defaultDecision domain.Decision) *DefaultEngine {
-	return &DefaultEngine{defaultDecision: defaultDecision}
+	return &DefaultEngine{
+		defaultDecision: defaultDecision,
+		aiProducts:      domain.BuiltInAIProductCatalog(),
+	}
 }
 
 // Apply evaluates the request against all rules in priority order and returns
@@ -78,9 +82,18 @@ func (e *DefaultEngine) Update(payload *domain.PolicyPayload) error {
 	e.compiled = compiled
 	e.version = payload.Version
 	e.interception = normalizePolicyInterception(payload.Interception)
+	e.aiProducts = domain.MergeAIProductCatalog(domain.BuiltInAIProductCatalog(), payload.AIProducts)
 	e.promptEnforcementOverride = normalizePromptEnforcementOverride(payload.PromptEnforcementOverride)
 	e.mu.Unlock()
 	return nil
+}
+
+// AIProducts returns the effective built-in plus policy-delivered endpoint
+// catalog. The returned slice is isolated from the engine's mutable state.
+func (e *DefaultEngine) AIProducts() []domain.AIProductCatalogEntry {
+	e.mu.RLock()
+	defer e.mu.RUnlock()
+	return domain.MergeAIProductCatalog(nil, e.aiProducts)
 }
 
 // Version returns the currently loaded policy version.

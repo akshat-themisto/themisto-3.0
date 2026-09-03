@@ -10,6 +10,8 @@ import (
 	"time"
 
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/themisto/backend/internal/ailedger"
+	"github.com/themisto/backend/internal/ailedger/adapters/builtin"
 	"github.com/themisto/backend/internal/controlplane"
 	"github.com/themisto/backend/internal/metrics"
 	"github.com/themisto/backend/internal/signing"
@@ -35,6 +37,9 @@ type Server struct {
 	operatorAuthRL     *rateLimiter
 	enrollRL           *rateLimiter
 	generalRL          *rateLimiter
+	aiLedgerStore      *ailedger.SQLStore
+	aiLedgerManager    *ailedger.Manager
+	aiLedgerCipherErr  error
 }
 
 func NewServer(
@@ -80,6 +85,21 @@ func NewServer(
 		enrollRL:           newRateLimiter(10, time.Minute),
 		generalRL:          newRateLimiter(60, time.Minute),
 	}
+
+	ledgerStore := ailedger.NewSQLStore(s.DB)
+	registry := ailedger.NewRegistry()
+	for _, adapter := range builtin.All() {
+		if err := registry.Register(adapter); err != nil {
+			logger.Error("register AI Ledger connector adapter", "error", err)
+		}
+	}
+	credentialCipher, credentialCipherErr := ailedger.NewCredentialCipherFromEnv()
+	if credentialCipherErr != nil {
+		logger.Warn("AI Ledger connector credentials unavailable", "error", credentialCipherErr)
+	}
+	srv.aiLedgerStore = ledgerStore
+	srv.aiLedgerManager = ailedger.NewManager(registry, ledgerStore, credentialCipher)
+	srv.aiLedgerCipherErr = credentialCipherErr
 
 	// Health & metrics
 	srv.mux.HandleFunc("GET /healthz", srv.handleHealth)
@@ -143,6 +163,22 @@ func NewServer(
 	srv.mux.HandleFunc("POST /api/v1/ai/governance/vendors/{vendor}/block", srv.withRole("admin", srv.handleBlockUnsanctionedVendor))
 	srv.mux.HandleFunc("POST /api/v1/ai-governance/vendors/{vendor}/unblock", srv.withRole("admin", srv.handleUnblockVendor))
 	srv.mux.HandleFunc("POST /api/v1/ai/governance/vendors/{vendor}/unblock", srv.withRole("admin", srv.handleUnblockVendor))
+
+	// AI Ledger (admin/owner only, insights-only)
+	srv.mux.HandleFunc("GET /api/v1/ai-ledger/summary", srv.withRole("admin", srv.handleAILedgerSummary))
+	srv.mux.HandleFunc("GET /api/v1/ai-ledger/products", srv.withRole("admin", srv.handleAILedgerProducts))
+	srv.mux.HandleFunc("GET /api/v1/ai-ledger/people", srv.withRole("admin", srv.handleAILedgerPeople))
+	srv.mux.HandleFunc("GET /api/v1/ai-ledger/findings", srv.withRole("admin", srv.handleAILedgerFindings))
+	srv.mux.HandleFunc("GET /api/v1/ai-ledger/sources", srv.withRole("admin", srv.handleAILedgerSources))
+	srv.mux.HandleFunc("GET /api/v1/ai-ledger/connector-types", srv.withRole("admin", srv.handleAILedgerConnectorTypes))
+	srv.mux.HandleFunc("POST /api/v1/ai-ledger/connectors", srv.withRole("admin", srv.handleAILedgerCreateConnector))
+	srv.mux.HandleFunc("GET /api/v1/ai-ledger/connectors/{connectorID}", srv.withRole("admin", srv.handleAILedgerConnectorStatus))
+	srv.mux.HandleFunc("POST /api/v1/ai-ledger/connectors/{connectorID}/sync", srv.withRole("admin", srv.handleAILedgerSyncConnector))
+	srv.mux.HandleFunc("GET /api/v1/ai-ledger/directory-users", srv.withRole("admin", srv.handleAILedgerDirectoryUsers))
+	srv.mux.HandleFunc("POST /api/v1/ai-ledger/device-user-assignments", srv.withRole("admin", srv.handleAILedgerAssignDeviceUser))
+	srv.mux.HandleFunc("POST /api/v1/ai-ledger/csv/validate", srv.withRole("admin", srv.handleAILedgerCSVValidate))
+	srv.mux.HandleFunc("POST /api/v1/ai-ledger/csv/commit", srv.withRole("admin", srv.handleAILedgerCSVCommit))
+	srv.mux.HandleFunc("GET /api/v1/ai-ledger/export", srv.withRole("admin", srv.handleAILedgerExport))
 
 	// DLP
 	srv.mux.HandleFunc("GET /api/v1/dlp/events", srv.withSession(srv.handleListDLPEvents))

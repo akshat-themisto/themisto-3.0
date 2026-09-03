@@ -100,14 +100,12 @@ func main() {
 
 	proxyHandler := handler.NewProxyHandler(fwd, pol, telBuf, verifier, logger)
 	policyHandler := handler.NewPolicyHandler(pol, db, verifier, logger)
-	semanticHandler := handler.NewSemanticHandler(cfg.PromptSemantics, verifier, logger)
 
 	// Mux: /policy and /healthz are handled by dedicated handlers.
 	// /telemetry and all other paths go through proxyHandler (mTLS cert verification + real processing).
 	proxyMux := http.NewServeMux()
 
 	proxyMux.Handle("GET /policy", policyHandler)
-	proxyMux.Handle("POST /v1/prompt/semantic-evaluate", semanticHandler)
 	proxyMux.Handle("GET /healthz", handler.NewHealthHandler(db, &connCount))
 	proxyMux.Handle("/", proxyHandler)
 

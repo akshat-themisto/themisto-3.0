@@ -90,6 +90,64 @@ type AgentStatusEvent struct {
 	Data      map[string]interface{}
 }
 
+type AIActivityEvent struct {
+	Timestamp         time.Time
+	DeviceID          string
+	OrgID             string
+	VendorKey         string
+	ProductKey        string
+	Surface           string
+	ActivityKind      string
+	SourceApplication string
+	ModelIdentifier   string
+	ProjectIdentifier string
+	OpaqueSessionHash string
+	Count             int64
+	SourceKey         string
+	FreshnessAt       time.Time
+}
+
+func (s *Store) InsertAIActivityBatch(ctx context.Context, events []AIActivityEvent) error {
+	if len(events) == 0 {
+		return nil
+	}
+	var b strings.Builder
+	b.WriteString(`INSERT INTO ai_ledger_activity_events (
+		observed_at, device_id, org_id, vendor_key, product_key, surface,
+		activity_kind, source_application, model_identifier, project_identifier,
+		opaque_session_hash, activity_count, origin_kind, source_evidence_level,
+		reconciliation_status, evidence_level, source_identifier, source_key,
+		freshness_at, scope
+	) VALUES `)
+	args := make([]interface{}, 0, len(events)*15)
+	for i, event := range events {
+		if i > 0 {
+			b.WriteString(",")
+		}
+		base := i * 15
+		fmt.Fprintf(&b, "($%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,$%d,'endpoint','observed','not_applicable','observed',$%d,$%d,$%d,'device')",
+			base+1, base+2, base+3, base+4, base+5, base+6, base+7, base+8,
+			base+9, base+10, base+11, base+12, base+13, base+14, base+15)
+		args = append(args,
+			event.Timestamp, event.DeviceID, event.OrgID, event.VendorKey, event.ProductKey,
+			event.Surface, event.ActivityKind, nullIfEmpty(event.SourceApplication),
+			nullIfEmpty(event.ModelIdentifier), nullIfEmpty(event.ProjectIdentifier),
+			nullIfEmpty(event.OpaqueSessionHash), event.Count, event.DeviceID,
+			event.SourceKey, event.FreshnessAt,
+		)
+	}
+	b.WriteString(" ON CONFLICT DO NOTHING")
+	_, err := s.DB.ExecContext(ctx, b.String(), args...)
+	return err
+}
+
+func nullIfEmpty(value string) interface{} {
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	return value
+}
+
 func (s *Store) InsertAgentStatusBatch(ctx context.Context, events []AgentStatusEvent) error {
 	if len(events) == 0 {
 		return nil

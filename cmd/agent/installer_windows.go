@@ -463,7 +463,7 @@ func loadOrCreateConfig(sourceDir string) (map[string]interface{}, error) {
 		"https_intercept_capture_mode":     "encrypted_full_body",
 		"prompt_semantics_enabled":         true,
 		"prompt_semantics_local_url":       "http://127.0.0.1:17177/v1/classify",
-		"prompt_semantics_gateway_enabled": true,
+		"prompt_semantics_gateway_enabled": false,
 		"prompt_semantics_local_timeout":   "1500ms",
 		"prompt_semantics_gateway_timeout": "900ms",
 		"cert_path":                        filepath.Join(certsDir, "device.crt"),

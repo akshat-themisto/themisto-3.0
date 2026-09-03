@@ -532,19 +532,16 @@ All tests must pass for both OS platforms against the same Ubuntu gateway instan
 
 **Expected:**
 - Gateway receives wrapper headers with process info:
-  - `X-Themisto-Process-Path`: path to the binary.
   - `X-Themisto-Process-Name`: binary name.
   - `X-Themisto-Process-PID`: PID (numeric).
-  - `X-Themisto-Process-User`: OS user.
   - `X-Themisto-Process-Signed`: `true` or `false`.
+- Gateway does not receive executable paths or OS usernames.
 
 **Acceptance criteria (macOS):**
-- `Process-Path` matches output of `which curl`.
 - `Process-Signed` is `true` for Apple-signed binaries.
 - `Process-Bundle` is populated for `.app` bundles.
 
 **Acceptance criteria (Windows):**
-- `Process-Path` matches the full executable path.
 - `Process-Signed` is `true` for Authenticode-signed binaries.
 
 ---

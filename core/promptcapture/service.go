@@ -968,11 +968,6 @@ func (s *Service) emitPromptTelemetry(in promptTelemetryInput) {
 	if s.metrics == nil || s.cfg == nil {
 		return
 	}
-	path := strings.TrimSpace(in.DestinationPath)
-	if path == "" {
-		path = "/"
-	}
-	path = fmt.Sprintf("/prompt-capture/%s/%s/%s/%s", sanitizePathToken(in.Stage), sanitizePathToken(string(in.Surface)), sanitizePathToken(in.Decision.String()), sanitizePathToken(string(in.Outcome)))
 	host := strings.TrimSpace(in.DestinationHost)
 	if host == "" {
 		host = "unknown.prompt.target"
@@ -980,7 +975,6 @@ func (s *Service) emitPromptTelemetry(in promptTelemetryInput) {
 	data := map[string]interface{}{
 		"method":          "PROMPT",
 		"host":            host,
-		"path":            path,
 		"decision":        promptDecisionForTelemetry(in.Decision),
 		"latency_ms":      in.Latency.Milliseconds(),
 		"status":          in.Status,
@@ -1062,33 +1056,20 @@ func (s *Service) emitPromptDLPEvent(eval storedEvaluation, action, reasonCode, 
 		return
 	}
 	matchTypes := uniqueMatchTypes(eval.DLP.Matches)
-	patterns := make([]string, 0, len(eval.DLP.Matches))
-	excerpts := make([]string, 0, len(eval.DLP.Matches))
-	for _, m := range eval.DLP.Matches {
-		patterns = append(patterns, m.Pattern)
-		excerpts = append(excerpts, m.Excerpt)
-	}
-
 	data := map[string]interface{}{
-		"host":                   eval.RequestCtx.Host,
-		"path":                   eval.RequestCtx.Path,
-		"method":                 "PROMPT",
-		"request_id":             eval.Response.EvaluationID,
-		"match_types":            matchTypes,
-		"matched_patterns":       patterns,
-		"matched_fields":         eval.DLP.MatchedFields,
-		"matched_excerpts":       excerpts,
-		"match_count":            len(eval.DLP.Matches),
-		"action_taken":           action,
-		"severity":               eval.DLP.Severity,
-		"classification_reason":  eval.DLP.ClassificationReason,
-		"content_type":           "text/plain",
-		"file_count":             0,
-		"request_body":           eval.DLP.BodySample,
-		"request_body_truncated": eval.DLP.BodyTruncated,
-		"protocol":               domain.InterceptProtocolHTTP,
-		"direction":              domain.TrafficDirectionOutbound,
-		"inspection_quality":     domain.InspectionQualityFull,
+		"host":                  eval.RequestCtx.Host,
+		"method":                "PROMPT",
+		"request_id":            eval.Response.EvaluationID,
+		"match_types":           matchTypes,
+		"match_count":           len(eval.DLP.Matches),
+		"action_taken":          action,
+		"severity":              eval.DLP.Severity,
+		"classification_reason": eval.DLP.ClassificationReason,
+		"content_type":          "text/plain",
+		"file_count":            0,
+		"protocol":              domain.InterceptProtocolHTTP,
+		"direction":             domain.TrafficDirectionOutbound,
+		"inspection_quality":    domain.InspectionQualityFull,
 	}
 	if eval.PolicyRuleID != "" {
 		data["policy_rule_id"] = eval.PolicyRuleID
@@ -1098,14 +1079,11 @@ func (s *Service) emitPromptDLPEvent(eval storedEvaluation, action, reasonCode, 
 		data["semantic_category"] = eval.Semantic.Category
 		data["semantic_confidence"] = eval.Semantic.Confidence
 		data["semantic_ambiguous"] = eval.Semantic.Ambiguous
-		data["semantic_reason"] = eval.Semantic.Reason
 	}
 	if reasonCode != "" {
 		data["reason_code"] = reasonCode
 	}
-	if reasonDetail != "" {
-		data["reason_detail"] = reasonDetail
-	}
+	_ = reasonDetail
 	if eval.RequestCtx.AIVendor != "" {
 		data["ai_vendor"] = eval.RequestCtx.AIVendor
 	}

@@ -1,0 +1,11 @@
+DROP TABLE IF EXISTS ai_ledger_imports;
+DROP TABLE IF EXISTS ai_ledger_findings;
+DROP TABLE IF EXISTS ai_ledger_activity_events;
+DROP TABLE IF EXISTS ai_ledger_costs;
+DROP TABLE IF EXISTS ai_ledger_metrics;
+DROP TABLE IF EXISTS ai_ledger_licenses;
+DROP TABLE IF EXISTS ai_ledger_external_identities;
+DROP TABLE IF EXISTS ai_ledger_products;
+DROP TABLE IF EXISTS ai_ledger_device_user_assignments;
+DROP TABLE IF EXISTS ai_ledger_directory_users;
+DROP TABLE IF EXISTS ai_ledger_connectors;

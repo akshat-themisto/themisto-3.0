@@ -69,6 +69,9 @@ func (s *darwinSystemProxy) Register(ctx context.Context, host string, port uint
 		s.log.Info("system proxy registration skipped", "env", "THEMISTO_SKIP_SYSTEM_PROXY")
 		return nil
 	}
+	if s.registered == nil && managedProxyConfigurationPresent(ctx) {
+		return fmt.Errorf("an MDM-managed proxy configuration is present: %w", iface.ErrConflict)
+	}
 
 	// Idempotent only if live settings still match.
 	if s.registered != nil && s.registered.Host == host && s.registered.Port == port {
@@ -262,6 +265,29 @@ func activeNetworkServices(ctx context.Context) ([]string, error) {
 		services = append(services, line)
 	}
 	return services, nil
+}
+
+func managedProxyConfigurationPresent(ctx context.Context) bool {
+	out, err := exec.CommandContext(ctx, "profiles", "show", "-type", "configuration").CombinedOutput()
+	if err != nil {
+		return false
+	}
+	return profileContainsManagedProxy(string(out))
+}
+
+func profileContainsManagedProxy(output string) bool {
+	lower := strings.ToLower(output)
+	for _, marker := range []string{
+		"proxyautoconfigurlstring",
+		"proxyserver",
+		"com.apple.systemconfiguration",
+		"com.apple.proxy.http.global",
+	} {
+		if strings.Contains(lower, marker) {
+			return true
+		}
+	}
+	return false
 }
 
 func getWebProxy(ctx context.Context, service string) (host string, port uint16, enabled bool, err error) {

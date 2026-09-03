@@ -23,15 +23,10 @@ type Evaluator interface {
 }
 
 type CascadeEvaluator struct {
-	localURL           string
-	gatewayURL         string
-	gateway            GatewayDoer
-	httpClient         *http.Client
-	localTimeout       time.Duration
-	gatewayTimeout     time.Duration
-	ambiguousThreshold float64
-	gatewayEnabled     bool
-	log                log.Logger
+	localURL     string
+	httpClient   *http.Client
+	localTimeout time.Duration
+	log          log.Logger
 }
 
 type CascadeOptions struct {
@@ -50,24 +45,14 @@ func NewCascadeEvaluator(opts CascadeOptions) *CascadeEvaluator {
 	if localTimeout == 0 {
 		localTimeout = 250 * time.Millisecond
 	}
-	gatewayTimeout := opts.GatewayTimeout
-	if gatewayTimeout == 0 {
-		gatewayTimeout = 900 * time.Millisecond
-	}
-	ambiguousThreshold := opts.AmbiguousThreshold
-	if ambiguousThreshold == 0 {
-		ambiguousThreshold = 0.55
+	if opts.GatewayEnabled && opts.Logger != nil {
+		opts.Logger.Warn("gateway semantic fallback is disabled; prompt content remains endpoint-local")
 	}
 	return &CascadeEvaluator{
-		localURL:           strings.TrimSpace(opts.LocalURL),
-		gatewayURL:         strings.TrimRight(strings.TrimSpace(opts.GatewayURL), "/"),
-		gateway:            opts.Gateway,
-		httpClient:         &http.Client{Timeout: localTimeout},
-		localTimeout:       localTimeout,
-		gatewayTimeout:     gatewayTimeout,
-		ambiguousThreshold: ambiguousThreshold,
-		gatewayEnabled:     opts.GatewayEnabled,
-		log:                opts.Logger,
+		localURL:     strings.TrimSpace(opts.LocalURL),
+		httpClient:   &http.Client{Timeout: localTimeout},
+		localTimeout: localTimeout,
+		log:          opts.Logger,
 	}
 }
 
@@ -76,20 +61,6 @@ func (e *CascadeEvaluator) Evaluate(ctx context.Context, req domain.PromptSemant
 	if err != nil && e.log != nil {
 		e.log.Warn("local prompt semantic classifier unavailable", "error", err)
 	}
-	if local != nil && !e.shouldEscalate(local) {
-		return local, nil
-	}
-
-	if e.gatewayEnabled && e.gateway != nil && e.gatewayURL != "" {
-		remote, remoteErr := e.evaluateGateway(ctx, req)
-		if remoteErr == nil && remote != nil {
-			return remote, nil
-		}
-		if remoteErr != nil && e.log != nil {
-			e.log.Warn("gateway prompt semantic classifier unavailable", "error", remoteErr)
-		}
-	}
-
 	if local != nil {
 		return local, nil
 	}
@@ -97,13 +68,6 @@ func (e *CascadeEvaluator) Evaluate(ctx context.Context, req domain.PromptSemant
 		return nil, err
 	}
 	return nil, fmt.Errorf("prompt semantic classifier unavailable")
-}
-
-func (e *CascadeEvaluator) shouldEscalate(result *domain.PromptSemanticResult) bool {
-	if result == nil {
-		return true
-	}
-	return result.Ambiguous || result.Confidence < e.ambiguousThreshold
 }
 
 func (e *CascadeEvaluator) evaluateLocal(ctx context.Context, req domain.PromptSemanticRequest) (*domain.PromptSemanticResult, error) {
@@ -119,40 +83,6 @@ func (e *CascadeEvaluator) evaluateLocal(ctx context.Context, req domain.PromptS
 	}
 	if result.Source == "" {
 		result.Source = "local_deberta"
-	}
-	normalizeResult(&result)
-	return &result, nil
-}
-
-func (e *CascadeEvaluator) evaluateGateway(ctx context.Context, req domain.PromptSemanticRequest) (*domain.PromptSemanticResult, error) {
-	ctx, cancel := context.WithTimeout(ctx, e.gatewayTimeout)
-	defer cancel()
-
-	body, err := json.Marshal(req)
-	if err != nil {
-		return nil, fmt.Errorf("marshal semantic request: %w", err)
-	}
-	resp, err := e.gateway.Do(ctx, &domain.HTTPRequest{
-		Method: "POST",
-		URL:    e.gatewayURL + "/v1/prompt/semantic-evaluate",
-		Headers: map[string][]string{
-			"Content-Type": {"application/json"},
-			"Accept":       {"application/json"},
-		},
-		Body: body,
-	})
-	if err != nil {
-		return nil, err
-	}
-	if resp.StatusCode >= 400 {
-		return nil, fmt.Errorf("gateway semantic classifier returned %d", resp.StatusCode)
-	}
-	var result domain.PromptSemanticResult
-	if err := json.Unmarshal(resp.Body, &result); err != nil {
-		return nil, fmt.Errorf("decode gateway semantic result: %w", err)
-	}
-	if result.Source == "" {
-		result.Source = "gateway_qwen"
 	}
 	normalizeResult(&result)
 	return &result, nil

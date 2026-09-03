@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/themisto/agent/core/adapter/iface"
+	"github.com/themisto/agent/core/aiactivity"
 	"github.com/themisto/agent/core/config"
 	"github.com/themisto/agent/core/dlp"
 	"github.com/themisto/agent/core/domain"
@@ -42,6 +43,7 @@ type HTTPProxy struct {
 	log                log.Logger
 	policyVersionFn    func() string
 	managedInterceptFn func() domain.PolicyInterception
+	productCatalogFn   func() []domain.AIProductCatalogEntry
 
 	server      *http.Server
 	sem         chan struct{} // concurrency limiter
@@ -64,6 +66,7 @@ type ProxyDeps struct {
 	Logger                log.Logger
 	PolicyVersionFn       func() string
 	ManagedInterceptionFn func() domain.PolicyInterception
+	ProductCatalogFn      func() []domain.AIProductCatalogEntry
 }
 
 // NewHTTPProxy creates the local forward proxy.
@@ -81,6 +84,7 @@ func NewHTTPProxy(deps ProxyDeps) *HTTPProxy {
 		log:                deps.Logger,
 		policyVersionFn:    deps.PolicyVersionFn,
 		managedInterceptFn: deps.ManagedInterceptionFn,
+		productCatalogFn:   deps.ProductCatalogFn,
 		sem:                make(chan struct{}, agentCfg.MaxConcurrentConns),
 		notifyLast:         make(map[string]time.Time),
 	}
@@ -159,11 +163,7 @@ func (p *HTTPProxy) handleHTTP(w http.ResponseWriter, r *http.Request) {
 	reqCtx := p.buildRequestContext(r, requestID)
 	reqCtx.Protocol = detectRequestProtocol(r)
 
-	// Tag AI service category.
-	if ai, ok := domain.InferAIService(reqCtx.Host, r.Header.Get("Origin"), r.Header.Get("Referer")); ok {
-		reqCtx.ServiceCategory = ai.Category
-		reqCtx.AIVendor = ai.Vendor
-	}
+	p.classifyAIRequest(reqCtx, r.Header.Get("Origin"), r.Header.Get("Referer"))
 
 	// Scan body before routing so body_* policy conditions can be evaluated.
 	// This preserves the original body stream for downstream forwarding.
@@ -302,10 +302,7 @@ func (p *HTTPProxy) handleConnect(w http.ResponseWriter, r *http.Request) {
 
 	reqCtx := p.buildRequestContext(r, requestID)
 	reqCtx.Protocol = domain.InterceptProtocolHTTP
-	if ai, ok := domain.InferAIService(reqCtx.Host, r.Header.Get("Origin"), r.Header.Get("Referer")); ok {
-		reqCtx.ServiceCategory = ai.Category
-		reqCtx.AIVendor = ai.Vendor
-	}
+	p.classifyAIRequest(reqCtx, r.Header.Get("Origin"), r.Header.Get("Referer"))
 
 	decision, ruleID, _ := p.router.Route(reqCtx)
 	if shouldBypassInfrastructureProcess(reqCtx.Process.Name) {
@@ -956,6 +953,69 @@ func (p *HTTPProxy) buildRequestContext(r *http.Request, requestID string) *doma
 	return ctx
 }
 
+func (p *HTTPProxy) classifyAIRequest(ctx *domain.RequestContext, signals ...string) {
+	catalog := domain.BuiltInAIProductCatalog()
+	if p.productCatalogFn != nil {
+		if managed := p.productCatalogFn(); len(managed) > 0 {
+			catalog = managed
+		}
+	}
+	entry, ok := domain.LookupAIProduct(catalog, ctx.Host, ctx.Process)
+	if !ok {
+		for _, signal := range signals {
+			if entry, ok = domain.LookupAIProduct(catalog, signal, ctx.Process); ok {
+				break
+			}
+		}
+	}
+	if !ok {
+		return
+	}
+	ctx.AIVendor = entry.VendorKey
+	ctx.AIProduct = entry.ProductKey
+	ctx.ServiceCategory = entry.FunctionalCategory
+	if ctx.CaptureSurface == "" {
+		ctx.CaptureSurface = inferCaptureSurface(ctx.Process, entry.Surfaces)
+	}
+}
+
+func inferCaptureSurface(process domain.ProcessInfo, supported []string) string {
+	name := strings.ToLower(strings.TrimSpace(process.Name))
+	bundle := strings.ToLower(strings.TrimSpace(process.BundleID))
+	selectSupported := func(wanted string) string {
+		for _, candidate := range supported {
+			if strings.EqualFold(candidate, wanted) {
+				return strings.ToLower(candidate)
+			}
+		}
+		return ""
+	}
+	switch {
+	case strings.Contains(name, "safari") || bundle == "com.apple.safari":
+		if surface := selectSupported("browser_safari"); surface != "" {
+			return surface
+		}
+	case strings.Contains(name, "chrome"), strings.Contains(name, "chromium"),
+		strings.Contains(name, "brave"), strings.Contains(name, "edge"),
+		strings.Contains(name, "arc"):
+		if surface := selectSupported("browser_chromium"); surface != "" {
+			return surface
+		}
+	}
+	for _, candidate := range supported {
+		token := strings.ReplaceAll(strings.ToLower(candidate), "_", " ")
+		if token != "" && (strings.Contains(name, token) || strings.Contains(bundle, strings.ReplaceAll(token, " ", "."))) {
+			return strings.ToLower(candidate)
+		}
+	}
+	for _, preferred := range []string{"local_model", "coding_agent", "desktop", "native_https", "api"} {
+		if surface := selectSupported(preferred); surface != "" {
+			return surface
+		}
+	}
+	return "unknown"
+}
+
 func (p *HTTPProxy) resolveProcess(r *http.Request) domain.ProcessInfo {
 	if p.resolver == nil {
 		return domain.ProcessInfo{}
@@ -1412,7 +1472,6 @@ func (p *HTTPProxy) emitRequestTelemetry(ctx *domain.RequestContext, decision do
 	data := map[string]interface{}{
 		"method":     ctx.Method,
 		"host":       ctx.Host,
-		"path":       ctx.Path,
 		"decision":   telemetryDecision(decision),
 		"latency_ms": latency.Milliseconds(),
 	}
@@ -1458,13 +1517,32 @@ func (p *HTTPProxy) emitRequestTelemetry(ctx *domain.RequestContext, decision do
 		Timestamp: time.Now(),
 		Data:      data,
 	})
+
+	if ctx.AIVendor != "" && ctx.AIProduct != "" {
+		activity := aiactivity.NewRequestEvent(
+			ctx.AIVendor,
+			ctx.AIProduct,
+			ctx.CaptureSurface,
+			ctx.Process.Name,
+			cfg.AgentID,
+			ctx.RequestID,
+			time.Now(),
+		)
+		if err := activity.Validate(); err != nil {
+			p.log.Warn("ai activity event rejected locally", "error", err)
+			return
+		}
+		_ = p.metrics.Emit(aiactivity.EventName, &domain.EventPayload{
+			AgentID:   cfg.AgentID,
+			Timestamp: activity.ObservedAt,
+			Data:      activity.Data(),
+		})
+	}
 }
 
-func (p *HTTPProxy) emitDLPTelemetry(ctx *domain.RequestContext, info domain.DLPInfo, requestID, action, policyRuleID, reasonCode, reasonDetail string) {
+func (p *HTTPProxy) emitDLPTelemetry(ctx *domain.RequestContext, info domain.DLPInfo, requestID, action, policyRuleID, reasonCode, _ string) {
 	cfg := p.cfg.Get()
 	matchTypes := make([]string, 0, len(info.Matches))
-	patterns := make([]string, 0, len(info.Matches))
-	excerpts := make([]string, 0, len(info.Matches))
 	seen := make(map[string]bool)
 	for _, m := range info.Matches {
 		t := string(m.Type)
@@ -1472,19 +1550,13 @@ func (p *HTTPProxy) emitDLPTelemetry(ctx *domain.RequestContext, info domain.DLP
 			matchTypes = append(matchTypes, t)
 			seen[t] = true
 		}
-		patterns = append(patterns, m.Pattern)
-		excerpts = append(excerpts, m.Excerpt)
 	}
 
 	data := map[string]interface{}{
 		"host":                  ctx.Host,
-		"path":                  ctx.Path,
 		"method":                ctx.Method,
 		"request_id":            requestID,
 		"match_types":           matchTypes,
-		"matched_patterns":      patterns,
-		"matched_fields":        info.MatchedFields,
-		"matched_excerpts":      excerpts,
 		"match_count":           len(info.Matches),
 		"action_taken":          action,
 		"severity":              info.Severity,
@@ -1500,15 +1572,6 @@ func (p *HTTPProxy) emitDLPTelemetry(ctx *domain.RequestContext, info domain.DLP
 	}
 	if reasonCode != "" {
 		data["reason_code"] = reasonCode
-	}
-	if reasonDetail != "" {
-		data["reason_detail"] = reasonDetail
-	}
-	if info.BodySample != "" {
-		data["request_body"] = info.BodySample
-	}
-	if info.BodyTruncated {
-		data["request_body_truncated"] = true
 	}
 	if ctx.ServiceCategory != "" {
 		data["service_category"] = ctx.ServiceCategory

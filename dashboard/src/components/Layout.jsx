@@ -1,6 +1,6 @@
 import { NavLink, Outlet } from 'react-router-dom';
 import { useAuth } from '../context/AuthContext';
-import { Activity, Bot, BriefcaseBusiness, LayoutDashboard, LogOut, ScrollText, Settings, Shield, ShieldAlert, Users } from 'lucide-react';
+import { Activity, BookOpenCheck, BriefcaseBusiness, LayoutDashboard, LogOut, ScrollText, Settings, Shield, ShieldAlert, Users } from 'lucide-react';
 import AlertBell from './AlertBell';
 import OnboardingExperience from './OnboardingExperience';
 import TermsAcceptanceModal from './TermsAcceptanceModal';
@@ -11,8 +11,8 @@ const links = [
     { to: '/audit', icon: <ScrollText size={18} />, label: 'Activity Log' },
     { to: '/policies', icon: <Shield size={18} />, label: 'Policies' },
     { to: '/telemetry', icon: <Activity size={18} />, label: 'Signals' },
-    { to: '/ai-usage', icon: <Bot size={18} />, label: 'AI Usage' },
-    { to: '/dlp', icon: <ShieldAlert size={18} />, label: 'Security Events' },
+    { to: '/ai-ledger', icon: <BookOpenCheck size={18} />, label: 'AI Ledger', adminOnly: true },
+    { to: '/dlp', icon: <ShieldAlert size={18} />, label: 'Data Protection' },
     { to: '/settings', icon: <Settings size={18} />, label: 'Settings', tourId: 'dashboard-nav-settings' },
 ];
 
@@ -33,7 +33,7 @@ export default function Layout() {
                     </div>
                     <div className="shell-brand-copy">
                         <span className="shell-brand-name">Themisto Labs</span>
-                        <span className="shell-brand-subtitle">Enterprise AI Governance</span>
+                        <span className="shell-brand-subtitle">AI Cost, Productivity & Governance</span>
                     </div>
                     <span className="shell-brand-pill">{roleLabel(user?.role)}</span>
                 </div>
@@ -49,9 +49,9 @@ export default function Layout() {
                 <aside className="sidebar" data-tour="dashboard-sidebar">
                     <nav className="sidebar-nav">
                         <div className="sidebar-section-label">
-                            Security Ops
+                            Workspace
                         </div>
-                        {links.map((l) => (
+                        {links.filter((l) => !l.adminOnly || user?.role === 'admin' || user?.role === 'owner').map((l) => (
                             <NavLink key={l.to} to={l.to} end={l.to === '/'} data-tour={l.tourId} className={({ isActive }) => `nav-link${isActive ? ' active' : ''}`}>
                                 <span className="nav-icon">{l.icon}</span>
                                 {l.label}

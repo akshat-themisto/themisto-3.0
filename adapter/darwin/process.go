@@ -171,11 +171,6 @@ func (r *darwinProcessResolver) findPIDByConnection(
 		}
 	}
 
-	// Fallback: return the last PID found for this remote endpoint.
-	if lastPID > 0 {
-		return lastPID, nil
-	}
-
 	return 0, fmt.Errorf("no process found for %s:%d->%s:%d: %w",
 		localAddr, localPort, remoteAddr, remotePort, iface.ErrNotFound)
 }

@@ -9,7 +9,7 @@ import AuditLog from './pages/AuditLog';
 import Policies from './pages/Policies';
 import Telemetry from './pages/Telemetry';
 import Settings from './pages/Settings';
-import AIUsage from './pages/AIUsage';
+import AILedger from './pages/AILedger';
 import DLPEvents from './pages/DLPEvents';
 
 function ProtectedRoute({ children }) {
@@ -39,7 +39,8 @@ function App() {
               <Route path="policies" element={<Policies />} />
               <Route path="telemetry" element={<Telemetry />} />
               <Route path="settings" element={<Settings />} />
-              <Route path="ai-usage" element={<AIUsage />} />
+              <Route path="ai-ledger" element={<AILedger />} />
+              <Route path="ai-usage" element={<Navigate to="/ai-ledger" replace />} />
               <Route path="dlp" element={<DLPEvents />} />
             </Route>
           </Routes>

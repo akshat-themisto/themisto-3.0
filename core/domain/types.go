@@ -80,10 +80,11 @@ type TLSConfig struct {
 
 // PolicyPayload holds policy data received from the gateway.
 type PolicyPayload struct {
-	Version                   string             `json:"version"`
-	Rules                     []PolicyRule       `json:"rules"`
-	Interception              PolicyInterception `json:"interception"`
-	PromptEnforcementOverride string             `json:"prompt_enforcement_override,omitempty"`
+	Version                   string                  `json:"version"`
+	Rules                     []PolicyRule            `json:"rules"`
+	Interception              PolicyInterception      `json:"interception"`
+	AIProducts                []AIProductCatalogEntry `json:"ai_products,omitempty"`
+	PromptEnforcementOverride string                  `json:"prompt_enforcement_override,omitempty"`
 }
 
 // PolicyInterception holds managed HTTPS interception settings synced from gateway.
@@ -133,8 +134,21 @@ type RequestContext struct {
 	Process              ProcessInfo
 	ServiceCategory      string // e.g. "ai_llm", "ai_code", "ai_image"; empty if not an AI service
 	AIVendor             string // e.g. "openai", "anthropic"; empty if not an AI service
+	AIProduct            string // stable endpoint product key; empty if not an AI product
 	CaptureSurface       string // capture origin: browser_chromium/browser_firefox/browser_safari/desktop/claude_code/cursor/windsurf/github_copilot
 	DLP                  DLPInfo
+}
+
+// EndpointAIObservation is aggregate, content-free local discovery metadata.
+// It is intentionally separate from employee identity: the agent never maps a
+// macOS login name to a directory user.
+type EndpointAIObservation struct {
+	VendorKey         string
+	ProductKey        string
+	Surface           string
+	ActivityKind      string
+	SourceApplication string
+	Count             int64
 }
 
 const (

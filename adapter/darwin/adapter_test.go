@@ -103,3 +103,12 @@ func TestServiceManager_StatusWhenNotInstalled(t *testing.T) {
 	}
 	t.Logf("service status: %d", status)
 }
+
+func TestProfileContainsManagedProxy(t *testing.T) {
+	if !profileContainsManagedProxy("ProxyAutoConfigURLString = https://mdm.example/proxy.pac") {
+		t.Fatal("managed PAC profile should be detected")
+	}
+	if profileContainsManagedProxy("PayloadType = com.apple.security.root") {
+		t.Fatal("unrelated MDM profiles must not be treated as proxy conflicts")
+	}
+}

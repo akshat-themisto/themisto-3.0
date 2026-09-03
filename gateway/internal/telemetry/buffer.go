@@ -12,27 +12,29 @@ import (
 )
 
 type Buffer struct {
-	ch       chan Event
-	dlpCh    chan DLPEvent
-	statusCh chan AgentStatusEvent
-	db       *store.Store
-	logger   *slog.Logger
-	batch    int
-	interval time.Duration
-	wg       sync.WaitGroup
-	dropped  int64
-	mu       sync.Mutex
+	ch         chan Event
+	dlpCh      chan DLPEvent
+	statusCh   chan AgentStatusEvent
+	activityCh chan AIActivityEvent
+	db         *store.Store
+	logger     *slog.Logger
+	batch      int
+	interval   time.Duration
+	wg         sync.WaitGroup
+	dropped    int64
+	mu         sync.Mutex
 }
 
 func NewBuffer(db *store.Store, bufferSize, batchSize int, flushInterval time.Duration, logger *slog.Logger) *Buffer {
 	return &Buffer{
-		ch:       make(chan Event, bufferSize),
-		dlpCh:    make(chan DLPEvent, bufferSize),
-		statusCh: make(chan AgentStatusEvent, bufferSize),
-		db:       db,
-		logger:   logger,
-		batch:    batchSize,
-		interval: flushInterval,
+		ch:         make(chan Event, bufferSize),
+		dlpCh:      make(chan DLPEvent, bufferSize),
+		statusCh:   make(chan AgentStatusEvent, bufferSize),
+		activityCh: make(chan AIActivityEvent, bufferSize),
+		db:         db,
+		logger:     logger,
+		batch:      batchSize,
+		interval:   flushInterval,
 	}
 }
 
@@ -69,6 +71,17 @@ func (b *Buffer) EmitAgentStatus(e AgentStatusEvent) {
 	}
 }
 
+func (b *Buffer) EmitAIActivity(e AIActivityEvent) {
+	select {
+	case b.activityCh <- e:
+	default:
+		b.mu.Lock()
+		b.dropped++
+		b.mu.Unlock()
+		metrics.TelemetryEventsDropped.Inc()
+	}
+}
+
 func (b *Buffer) Start(ctx context.Context) {
 	b.wg.Add(1)
 	go b.run(ctx)
@@ -78,6 +91,7 @@ func (b *Buffer) Stop() {
 	close(b.ch)
 	close(b.dlpCh)
 	close(b.statusCh)
+	close(b.activityCh)
 	b.wg.Wait()
 }
 
@@ -90,6 +104,7 @@ func (b *Buffer) run(ctx context.Context) {
 	pending := make([]Event, 0, b.batch)
 	pendingDLP := make([]DLPEvent, 0, b.batch)
 	pendingStatus := make([]AgentStatusEvent, 0, b.batch)
+	pendingActivity := make([]AIActivityEvent, 0, b.batch)
 
 	for {
 		select {
@@ -98,6 +113,7 @@ func (b *Buffer) run(ctx context.Context) {
 				b.flush(ctx, pending)
 				b.flushDLP(ctx, pendingDLP)
 				b.flushAgentStatus(ctx, pendingStatus)
+				b.flushAIActivity(ctx, pendingActivity)
 				return
 			}
 			pending = append(pending, e)
@@ -123,6 +139,15 @@ func (b *Buffer) run(ctx context.Context) {
 				b.flushAgentStatus(ctx, pendingStatus)
 				pendingStatus = pendingStatus[:0]
 			}
+		case e, ok := <-b.activityCh:
+			if !ok {
+				continue
+			}
+			pendingActivity = append(pendingActivity, e)
+			if len(pendingActivity) >= b.batch {
+				b.flushAIActivity(ctx, pendingActivity)
+				pendingActivity = pendingActivity[:0]
+			}
 		case <-ticker.C:
 			if len(pending) > 0 {
 				b.flush(ctx, pending)
@@ -136,7 +161,39 @@ func (b *Buffer) run(ctx context.Context) {
 				b.flushAgentStatus(ctx, pendingStatus)
 				pendingStatus = pendingStatus[:0]
 			}
+			if len(pendingActivity) > 0 {
+				b.flushAIActivity(ctx, pendingActivity)
+				pendingActivity = pendingActivity[:0]
+			}
 		}
+	}
+}
+
+func (b *Buffer) flushAIActivity(ctx context.Context, events []AIActivityEvent) {
+	if len(events) == 0 {
+		return
+	}
+	storeEvents := make([]store.AIActivityEvent, len(events))
+	for i, event := range events {
+		storeEvents[i] = store.AIActivityEvent{
+			Timestamp:         event.Timestamp,
+			DeviceID:          event.DeviceID,
+			OrgID:             event.OrgID,
+			VendorKey:         event.VendorKey,
+			ProductKey:        event.ProductKey,
+			Surface:           event.Surface,
+			ActivityKind:      event.ActivityKind,
+			SourceApplication: event.SourceApplication,
+			ModelIdentifier:   event.ModelIdentifier,
+			ProjectIdentifier: event.ProjectIdentifier,
+			OpaqueSessionHash: event.OpaqueSessionHash,
+			Count:             event.Count,
+			SourceKey:         event.SourceKey,
+			FreshnessAt:       event.FreshnessAt,
+		}
+	}
+	if err := b.db.InsertAIActivityBatch(ctx, storeEvents); err != nil {
+		b.logger.Error("AI activity flush failed", "count", len(events), "error", err)
 	}
 }
 
@@ -203,15 +260,11 @@ func (b *Buffer) flush(ctx context.Context, events []Event) {
 
 			orgID := normalizedAuditOrgID(e.OrgID)
 			resourceID := e.RequestHost
-			if e.RequestPath != "" {
-				resourceID = e.RequestHost + e.RequestPath
-			}
 
 			details := map[string]interface{}{
 				"device_id":       e.DeviceID,
 				"request_method":  e.RequestMethod,
 				"request_host":    e.RequestHost,
-				"request_path":    e.RequestPath,
 				"response_status": e.ResponseStatus,
 				"latency_ms":      e.LatencyMs,
 				"policy_decision": e.PolicyDecision,
